@@ -1,0 +1,24 @@
+# Secrets and local credentials
+.env
+.env.*
+!.env.example
+credentials.txt
+*credentials*.txt
+*secret*
+*.pem
+*.key
+*.xlsx
+
+# Generated media and transient downloads
+.incoming/
+entregas/
+outputs/
+*.mp4
+*.mov
+*.mkv
+*.webm
+
+# Local caches
+.cache/
+__pycache__/
+*.pyc

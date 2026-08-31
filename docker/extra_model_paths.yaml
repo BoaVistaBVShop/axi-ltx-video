@@ -1,0 +1,8 @@
+ltx_project:
+  base_path: /workspace/models
+  diffusion_models: diffusion_models
+  text_encoders: text_encoders
+  vae: vae
+  latent_upscale_models: latent_upscale_models
+  model_patches: model_patches
+  loras: loras

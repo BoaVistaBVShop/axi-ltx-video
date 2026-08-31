@@ -1,0 +1,14 @@
+.git
+.gitignore
+.incoming
+entregas
+outputs
+__pycache__
+*.pyc
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.xlsx
+docs
+AGENTS.md
