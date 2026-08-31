@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "source_workflows_commit": "15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d",
+  "common": {
+    "fps": 24,
+    "duration_seconds_default": 5,
+    "frame_count_rule": "1 + 8k",
+    "audio_enabled": true,
+    "prompt_enhance": false,
+    "negative_prompt_default": "",
+    "image_conditioning": {
+      "enabled_per_job": true,
+      "strength": 0.7,
+      "compression": 18
+    },
+    "seed_policy": {
+      "mode": "explicit",
+      "preview_variations": 2,
+      "reuse_selected_seed_for_final": true
+    }
+  },
+  "aspects": {
+    "landscape_16_9": {
+      "stage_1_width": 960,
+      "stage_1_height": 544,
+      "two_stage_raw_width": 1920,
+      "two_stage_raw_height": 1088,
+      "delivery_width": 1920,
+      "delivery_height": 1080,
+      "postprocess": "center_crop_8px_vertical"
+    },
+    "portrait_9_16": {
+      "stage_1_width": 544,
+      "stage_1_height": 960,
+      "two_stage_raw_width": 1088,
+      "two_stage_raw_height": 1920,
+      "delivery_width": 1080,
+      "delivery_height": 1920,
+      "postprocess": "center_crop_8px_horizontal"
+    },
+    "square_1_1": {
+      "stage_1_width": 544,
+      "stage_1_height": 544,
+      "two_stage_raw_width": 1088,
+      "two_stage_raw_height": 1088,
+      "delivery_width": 1080,
+      "delivery_height": 1080,
+      "postprocess": "center_crop_8px_both_axes"
+    }
+  },
+  "profiles": {
+    "preview": {
+      "workflow": "LTX-2.5_T2V_I2V_Single_Stage_Distilled.json",
+      "model_profile": "preview",
+      "gpu": "NVIDIA GeForce RTX 5090",
+      "stage_1": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler": "euler_ancestral"
+      },
+      "decode": {
+        "bit_depth": 8,
+        "tile_size": 512,
+        "overlap": 64,
+        "temporal_size": 128,
+        "temporal_overlap": 32
+      }
+    },
+    "final_int8": {
+      "workflow": "LTX-2.5_T2V_I2V_Two_Stage_Distilled.json",
+      "model_profile": "final-int8",
+      "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "stage_1": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler": "euler_ancestral"
+      },
+      "stage_2": {
+        "spatial_upscale": 2,
+        "steps": 3,
+        "cfg": 1.0,
+        "sampler": "euler",
+        "reuse_seed": true
+      },
+      "decode": {
+        "bit_depth": 8,
+        "tile_size": 1536,
+        "overlap": 384,
+        "temporal_size": 192,
+        "temporal_overlap": 48,
+        "fallback": {
+          "tile_size": 1024,
+          "overlap": 256,
+          "temporal_size": 128,
+          "temporal_overlap": 48
+        }
+      }
+    },
+    "final_bf16": {
+      "inherits": "final_int8",
+      "model_profile": "final-bf16",
+      "use_only_after_benchmark": true
+    }
+  }
+}

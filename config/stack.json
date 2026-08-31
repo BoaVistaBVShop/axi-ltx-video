@@ -24,6 +24,8 @@
   },
   "image": {
     "base": "runpod/comfyui:cuda13.0@sha256:094dc6d79448b6f118c4d2b054073f92d765c568598e7a96aaeda678a6bcbf3b",
+    "published": "ghcr.io/boavistabvshop/axi-ltx-video@sha256:d4c9faacc05976dafd64a9cd95ae133e36ec3744e79c5d653a412b18d1ae1ad4",
+    "published_tag": "v0.1.0",
     "platform": "linux/amd64",
     "comfyui_version": "v0.34.0",
     "comfyui_commit": "12d5279438bfefc058a269eae805ceab6047777f",
@@ -32,6 +34,7 @@
   "paths": {
     "comfyui": "/workspace/runpod-slim/ComfyUI",
     "models": "/workspace/models",
-    "jobs": "/workspace/jobs"
+    "jobs": "/workspace/jobs",
+    "generation_profiles": "config/generation-profiles.json"
   }
 }

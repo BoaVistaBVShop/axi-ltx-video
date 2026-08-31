@@ -54,7 +54,9 @@ Cada arquivo é validado por tamanho e SHA-256 antes de ser considerado pronto.
 ## Documentação
 
 - `docs/arquitetura-inicial.md`: arquitetura, custos e decisões;
+- `docs/parametros-ltx.md`: parâmetros criativos e perfis técnicos;
 - `config/stack.json`: configuração planejada da Runpod;
+- `config/generation-profiles.json`: presets de prévia e final;
 - `AGENTS.md`: regras operacionais e estado completo do projeto.
 
 Nenhum recurso cobrável da Runpod deve ser criado sem aprovação explícita do orçamento correspondente.
