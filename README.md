@@ -7,6 +7,8 @@ O projeto separa três responsabilidades:
 - a imagem Docker contém somente o runtime e as dependências fixadas;
 - os modelos ficam em um network volume persistente;
 - cada sessão usa um Pod temporário, eliminado ao terminar a fila.
+- toda configuração e operação interna do Pod é feita via SSH por scripts versionados e idempotentes; interfaces web não são usadas para instalar ou corrigir o ambiente;
+- o fluxo normal é `provisionar → SSH → gerar → validar em ready → excluir Pod → baixar via S3 → validar localmente`.
 
 Nenhuma credencial, peso de modelo ou material de cliente é incluído na imagem ou neste repositório.
 
@@ -42,6 +44,8 @@ Depois de aceitar a licença do modelo na Hugging Face e configurar `HF_TOKEN` c
 ```bash
 python /opt/ltx-stack/download_models.py --profile preview
 ```
+
+Esse comando será chamado pelo bootstrap versionado através de SSH. Ele não deve ser executado manualmente pelo Web Terminal, Jupyter ou ComfyUI Manager.
 
 Perfis disponíveis:
 

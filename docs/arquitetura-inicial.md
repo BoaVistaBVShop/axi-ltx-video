@@ -17,6 +17,7 @@ Snapshot técnico: 2026-08-31. Nenhum recurso cobrável foi criado durante esta 
 | Custom node LTX | `Lightricks/ComfyUI-LTXVideo` no commit `15d09abb5a18` |
 | Modelo de prévia | LTX-2.5 distilled INT8 ConvRot, workflow oficial single-stage |
 | Modelo de final | primeiro benchmark: distilled INT8 two-stage; opção de qualidade máxima: distilled BF16 two-stage na GPU de 96 GB |
+| Acesso ao Pod | somente SSH em `22/tcp`; ComfyUI via port forwarding local |
 | Entrega | Network Volume → API S3 Runpod → `.incoming` local → validação → `entregas/<job-id>` |
 
 O `EU-RO-1` foi escolhido porque, no catálogo consultado, oferece volume `STANDARD` e aparece na disponibilidade tanto da RTX 5090 quanto da RTX PRO 6000. Isso permite que prévias e finais usem o mesmo volume, sem duplicar ou migrar os modelos.
@@ -29,6 +30,14 @@ O `EU-RO-1` foi escolhido porque, no catálogo consultado, oferece volume `STAND
 4. `vazar`: confirmar a entrega local e garantir que não existe GPU ou Pod órfão cobrando.
 
 O que permanece entre sessões é a imagem versionada, o template e o network volume. O Pod não permanece.
+
+## Canal de configuração e operação: SSH obrigatório
+
+O Pod é criado e excluído pelo plano de controle da Runpod (`runpodctl`, MCP ou API). Depois que o acesso estiver disponível, toda ação dentro dele será conduzida por SSH a partir do ambiente local: bootstrap inicial, preparação do volume, download e validação dos modelos, health checks, smoke test, envio do manifest, início e acompanhamento da geração, validação dos outputs e diagnóstico.
+
+Não haverá configuração por Web Terminal, Jupyter, shell do navegador ou cliques no ComfyUI Manager. As rotinas SSH devem chamar scripts versionados e idempotentes: na primeira execução preparam apenas o que falta; nas seguintes validam o estado existente e seguem diretamente para o job. Se uma correção for descoberta durante uma sessão, ela deve ser incorporada à imagem, ao template ou aos scripts e comprovada em um Pod novo.
+
+O fluxo técnico fica: `provisionar → aguardar SSH → bootstrap/validação idempotente → gerar → publicar em ready → excluir Pod → receber por S3 → validar localmente`. O S3 continua sendo o canal principal de entrega; SSH é o canal obrigatório de controle do Pod. O Pod deve ser excluído assim que os outputs estiverem seguros no network volume, sem aguardar o download local.
 
 ## Inventário de modelos e espaço
 
@@ -64,7 +73,7 @@ A tag pública `runpod/comfyui:cuda13.0` será usada apenas como origem. A image
 
 Os pesos não entram na imagem: ficam no network volume. Assim, atualizar a automação não obriga a reenviar mais de 100 GB de modelos ao registry, e recriar um Pod não baixa tudo novamente.
 
-O build foi preparado em `.github/workflows/build-image.yml` para ocorrer no GitHub Actions e publicar no GitHub Container Registry (GHCR). Isso evita consumir dezenas de gigabytes no Docker Desktop local. O workflow é somente manual, fixa as actions por commit, gera SBOM/proveniência e registra o digest imutável. Ele não será executado até existir um repositório GitHub e o usuário autorizar a publicação.
+O build em `.github/workflows/build-image.yml` ocorre no GitHub Actions e publica no GitHub Container Registry (GHCR), evitando consumir dezenas de gigabytes no Docker Desktop local. O primeiro build `v0.1.0` já foi concluído e seu digest imutável está em `config/stack.json`; o workflow continua manual, com actions fixadas por commit, SBOM e proveniência.
 
 Como a imagem não contém pesos, referências do cliente nem segredos, a opção operacional mais simples é torná-la pública no GHCR. Se o usuário preferir mantê-la privada, será necessário cadastrar autenticação de container registry na Runpod; isso é independente das credenciais S3 já configuradas.
 
@@ -99,15 +108,15 @@ Além do volume, a GPU é cobrada apenas enquanto o Pod existir:
 - RTX 5090 Secure: US$ 0,99/h;
 - RTX PRO 6000 Secure: US$ 2,09/h.
 
-O custo real por cena ainda não pode ser estimado com honestidade sem um benchmark representativo de duração, resolução, FPS e workflow. O primeiro Pod deverá ter `terminate-after` rígido e um teto explícito aprovado pelo usuário.
+O custo real por cena ainda não pode ser estimado com honestidade sem um benchmark representativo de duração, resolução, FPS e workflow. O primeiro Pod deverá ter deadline rígido e um teto explícito aprovado pelo usuário. Como a ajuda ao vivo do `runpodctl` 2.12.0 não expõe `--terminate-after`, o limite deve ser garantido por watchdog externo que exclua o Pod pelo plano de controle; uma expiração nativa é apenas uma proteção adicional quando a ferramenta/API em uso confirmar suporte.
 
 ## Próximas dependências antes de provisionar
 
 1. aceitar a licença do `Lightricks/LTX-2.5` na Hugging Face e configurar um token de leitura sem enviá-lo pelo chat;
-2. criar/escolher o repositório GitHub e decidir se o pacote GHCR será público ou privado;
+2. decidir se o pacote GHCR, observado como privado, será tornado público ou se a Runpod receberá autenticação de registry privado;
 3. confirmar o orçamento persistente do volume de 200 GB e o teto do piloto;
 4. fornecer duas cenas/referências representativas e os parâmetros de entrega;
-5. então construir/publicar a imagem, criar volume/template, carregar os modelos uma vez e executar dois testes de recriação.
+5. então criar volume/template, testar SSH, carregar os modelos uma vez e executar dois testes de recriação.
 
 ## Fontes primárias
 

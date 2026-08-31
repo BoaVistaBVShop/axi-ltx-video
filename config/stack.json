@@ -10,7 +10,18 @@
       "mount_path": "/workspace"
     },
     "container_disk_gb": 150,
-    "ports": ["8188/http", "8080/http", "8888/http", "22/tcp"],
+    "ports": ["22/tcp"],
+    "access": {
+      "control_plane": ["MCP", "runpodctl", "REST_API"],
+      "pod_operations": "SSH_ONLY",
+      "comfyui_access": "SSH_LOCAL_PORT_FORWARD",
+      "delivery": "RUNPOD_S3"
+    },
+    "cost_guard": {
+      "external_watchdog_delete": "REQUIRED",
+      "native_expiration": "USE_ONLY_IF_CONFIRMED_BY_LIVE_CONTROL_PLANE",
+      "delete_when_ready_is_safe": true
+    },
     "preview_gpu": {
       "id": "NVIDIA GeForce RTX 5090",
       "memory_gb": 32,
