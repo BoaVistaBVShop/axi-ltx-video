@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Download a pinned LTX model profile into the persistent network volume."""
+"""Download pinned ComfyUI workflows into the persistent network volume."""
 
 from __future__ import annotations
 
@@ -8,13 +8,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
-import sys
-
-from huggingface_hub import hf_hub_download
+from urllib.request import Request, urlopen
 
 
-def sha256_file(path: Path, chunk_size: int = 16 * 1024 * 1024) -> str:
+def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         while chunk := handle.read(chunk_size):
@@ -33,11 +30,11 @@ def is_valid(path: Path, expected_bytes: int, expected_sha256: str) -> bool:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", required=True)
-    parser.add_argument("--root", type=Path, default=Path("/workspace/models"))
+    parser.add_argument("--root", type=Path, default=Path("/workspace/workflows"))
     parser.add_argument(
         "--manifest",
         type=Path,
-        default=Path("/opt/ltx-stack/models-manifest.json"),
+        default=Path("/opt/ltx-stack/workflows-manifest.json"),
     )
     args = parser.parse_args()
 
@@ -54,52 +51,33 @@ def main() -> int:
             f"unknown profile {args.profile!r}; choose one of: "
             f"{', '.join(available_profiles)}"
         )
+
     selected = [
         entry for entry in manifest["files"] if args.profile in entry["profiles"]
     ]
-    if not selected:
-        raise RuntimeError(f"Manifest has no files for profile {args.profile!r}")
-
     args.root.mkdir(parents=True, exist_ok=True)
-    missing = []
+
     for entry in selected:
         destination = args.root / entry["path"]
         if is_valid(destination, entry["bytes"], entry["sha256"]):
             print(f"OK      {entry['path']}")
-        else:
-            missing.append(entry)
+            continue
 
-    if missing and not os.environ.get("HF_TOKEN"):
-        print(
-            "HF_TOKEN is required for missing gated LTX-2.5 files. "
-            "Configure it as a Runpod secret; never paste it into logs or chat.",
-            file=sys.stderr,
-        )
-        return 2
-
-    for entry in missing:
-        print(f"FETCH   {entry['path']}")
-        destination = args.root / entry["path"]
         destination.parent.mkdir(parents=True, exist_ok=True)
-        staging_dir = args.root / ".downloads" / entry["sha256"]
-        downloaded = Path(
-            hf_hub_download(
-                repo_id=entry.get("repo_id", manifest["source_repository"]),
-                filename=entry.get("source_path", entry["path"]),
-                revision=entry.get("revision"),
-                token=os.environ.get("HF_TOKEN"),
-                local_dir=staging_dir,
-            )
-        )
-        if not is_valid(downloaded, entry["bytes"], entry["sha256"]):
-            raise RuntimeError(f"Integrity check failed for staged {entry['path']}")
-        os.replace(downloaded, destination)
-        shutil.rmtree(staging_dir, ignore_errors=True)
-        if not is_valid(destination, entry["bytes"], entry["sha256"]):
+        temporary = destination.with_name(f".{destination.name}.part")
+        request = Request(entry["url"], headers={"User-Agent": "axi-ltx-video/1"})
+        print(f"FETCH   {entry['path']}")
+        with urlopen(request, timeout=60) as response, temporary.open("wb") as handle:
+            while chunk := response.read(1024 * 1024):
+                handle.write(chunk)
+
+        if not is_valid(temporary, entry["bytes"], entry["sha256"]):
+            temporary.unlink(missing_ok=True)
             raise RuntimeError(f"Integrity check failed for {entry['path']}")
+        os.replace(temporary, destination)
         print(f"VERIFIED {entry['path']}")
 
-    print(f"Profile {args.profile!r} is complete and verified.")
+    print(f"Workflow profile {args.profile!r} is complete and verified.")
     return 0
 
 

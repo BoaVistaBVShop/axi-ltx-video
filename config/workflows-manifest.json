@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "source_repository": "Lightricks/ComfyUI-LTXVideo",
+  "source_commit": "15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d",
+  "snapshot_date": "2026-08-31",
+  "files": [
+    {
+      "path": "LTX-2.5_T2V_I2V_Single_Stage_Distilled.json",
+      "url": "https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d/example_workflows/2.5/LTX-2.5_T2V_I2V_Single_Stage_Distilled.json",
+      "bytes": 153765,
+      "sha256": "e264b203ec4b0ff1dfd448121c96ceb5d45dfe84b70fcac9a03e5bc700338f25",
+      "profiles": ["preview", "baseline-bf16-single-stage"]
+    },
+    {
+      "path": "LTX-2.5_T2V_I2V_Two_Stage_Distilled.json",
+      "url": "https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d/example_workflows/2.5/LTX-2.5_T2V_I2V_Two_Stage_Distilled.json",
+      "bytes": 191525,
+      "sha256": "b8b8d79b5cb09519e828a3cd438348b492b448547f030ed7e1098ad86ea3010a",
+      "profiles": ["final-int8", "final-bf16"]
+    },
+    {
+      "path": "LTX-2.5_ICLoRA_Ingredients_Single_Stage_Distilled.json",
+      "url": "https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d/example_workflows/2.5/LTX-2.5_ICLoRA_Ingredients_Single_Stage_Distilled.json",
+      "bytes": 146052,
+      "sha256": "afb34052b0569ffaa7930bfa2c854798b8121ce72240306eb7f49724efbe1f72",
+      "profiles": ["lora-ingredients-bf16"]
+    },
+    {
+      "path": "LTX-2.5_ICLoRA_Motion_Track_Distilled.json",
+      "url": "https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d/example_workflows/2.5/LTX-2.5_ICLoRA_Motion_Track_Distilled.json",
+      "bytes": 190687,
+      "sha256": "6ff1604c041771f9be6a375c27f5fcb5689ffe94194f56d188ce1d3c2e809ecd",
+      "profiles": ["lora-motion-track-bf16"]
+    },
+    {
+      "path": "LTX-2.5_ICLoRA_Union_Control_Distilled.json",
+      "url": "https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d/example_workflows/2.5/LTX-2.5_ICLoRA_Union_Control_Distilled.json",
+      "bytes": 218222,
+      "sha256": "c41586a1426fc68a136eb958004aaa9e529fe78f401262b475fad3180558cfd7",
+      "profiles": ["lora-union-control-bf16"]
+    },
+    {
+      "path": "LTX-2.5_ICLoRA_Outpaint_Two_Stage_Distilled.json",
+      "url": "https://raw.githubusercontent.com/Lightricks/ComfyUI-LTXVideo/15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d/example_workflows/2.5/LTX-2.5_ICLoRA_Outpaint_Two_Stage_Distilled.json",
+      "bytes": 232038,
+      "sha256": "572efd3720d0e805b862c0262b3064be5b63f073aeee62048535b11baad87396",
+      "profiles": ["lora-outpaint-bf16"]
+    }
+  ]
+}

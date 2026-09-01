@@ -60,14 +60,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY docker/extra_model_paths.yaml /opt/comfyui-baked/extra_model_paths.yaml
 COPY docker/healthcheck.sh /usr/local/bin/ltx-healthcheck
 COPY config/models-manifest.json /opt/ltx-stack/models-manifest.json
+COPY config/workflows-manifest.json /opt/ltx-stack/workflows-manifest.json
+COPY config/generation-profiles.json /opt/ltx-stack/generation-profiles.json
 COPY scripts/pod/download_models.py /opt/ltx-stack/download_models.py
+COPY scripts/pod/download_workflows.py /opt/ltx-stack/download_workflows.py
 COPY scripts/pod/finalize_output.py /opt/ltx-stack/finalize_output.py
 
 RUN chmod 0755 /usr/local/bin/ltx-healthcheck \
     /opt/ltx-stack/download_models.py \
+    /opt/ltx-stack/download_workflows.py \
     /opt/ltx-stack/finalize_output.py \
     && python3.12 -m py_compile \
     /opt/ltx-stack/download_models.py \
+    /opt/ltx-stack/download_workflows.py \
     /opt/ltx-stack/finalize_output.py
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \

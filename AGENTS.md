@@ -86,26 +86,28 @@ O teste de aceitação da configuração inicial é: criar um Pod do zero usando
 
 ## 5. Fluxo normal de cada workload
 
-1. Receber cenas, imagens ou vídeos de referência e o briefing.
-2. Registrar duração, proporção, resolução, FPS, requisitos de áudio, estilo, continuidade, privacidade e formato de entrega.
-3. Montar um manifest de job reproduzível.
-4. Estimar GPU, tempo, armazenamento temporário e custo máximo.
-5. Obter aprovação explícita antes de criar qualquer recurso cobrado quando ainda não houver autorização para aquele lote.
-6. Criar o Pod pelo template, no mesmo data center do network volume.
-7. Armar antes da criação um deadline externo/watchdog que exclua o Pod; usar também proteção nativa de expiração somente se a capacidade existir e for confirmada no plano de controle ao vivo.
-8. Aguardar a disponibilidade do SSH e conectar usando o destino fornecido pelo plano de controle.
-9. Executar por SSH a validação idempotente do ambiente e verificar ComfyUI/runtime LTX com uma chamada de saúde, não apenas pelo status `RUNNING`.
-10. Enviar ou referenciar o workload e iniciar a geração por SSH.
-11. Gerar, por padrão, duas variações A/B por cena na mesma inicialização e com seeds registradas.
-12. Apresentar as prévias e renderizar em qualidade final somente as versões aprovadas.
-13. Fazer upscale e pós-processamento apenas quando agregarem qualidade à versão escolhida.
-14. Executar controle de qualidade técnico e visual remoto.
-15. Publicar atomicamente resultados, manifests, checksums e metadados validados em `ready` no network volume.
-16. Terminar/excluir o Pod assim que a fila acabar e `ready` estiver seguro; não esperar o download local com a GPU ligada.
-17. Baixar pela API S3 para `.incoming` e validar novamente SHA-256 e FFprobe localmente.
-18. Mover o job validado para `entregas/<job-id>` e confirmar backup antes de limpar o remoto.
-19. Remover intermediários descartáveis sem apagar pesos, workflows ou entregas não confirmadas.
-20. Registrar tempo, custo, GPU, modelo, workflow, seed e resultado para melhorar estimativas futuras.
+1. **Antes de pedir que o usuário envie a cena, imagens, vídeos ou folha de referências, perguntar explicitamente se aquela cena terá teste A/B sem LoRA versus com LoRA e, em caso afirmativo, qual perfil de LoRA será avaliado.** Não presumir a resposta a partir de cenas anteriores. Se o material chegar antes da pergunta, perguntar imediatamente, antes de fechar o manifest, estimar custo ou ligar GPU.
+2. Receber cenas, imagens ou vídeos de referência e o briefing.
+3. Registrar duração, proporção, resolução, FPS, requisitos de áudio, estilo, continuidade, privacidade e formato de entrega.
+4. Registrar no manifest a decisão `lora_ab`: habilitado ou não, perfil solicitado, baseline, inputs de controle e critérios de comparação.
+5. Montar um manifest de job reproduzível.
+6. Estimar GPU, tempo, armazenamento temporário e custo máximo.
+7. Obter aprovação explícita antes de criar qualquer recurso cobrado quando ainda não houver autorização para aquele lote.
+8. Criar o Pod pelo template, no mesmo data center do network volume.
+9. Armar antes da criação um deadline externo/watchdog que exclua o Pod; usar também proteção nativa de expiração somente se a capacidade existir e for confirmada no plano de controle ao vivo.
+10. Aguardar a disponibilidade do SSH e conectar usando o destino fornecido pelo plano de controle.
+11. Executar por SSH a validação idempotente do ambiente e verificar ComfyUI/runtime LTX com uma chamada de saúde, não apenas pelo status `RUNNING`.
+12. Enviar ou referenciar o workload e iniciar a geração por SSH.
+13. Gerar, por padrão, duas variações A/B por cena na mesma inicialização e com seeds registradas. O A/B criativo entre seeds é distinto do A/B técnico sem LoRA versus com LoRA; este último só ocorre após a confirmação específica do usuário prevista no passo 1.
+14. Apresentar as prévias e renderizar em qualidade final somente as versões aprovadas.
+15. Fazer upscale e pós-processamento apenas quando agregarem qualidade à versão escolhida.
+16. Executar controle de qualidade técnico e visual remoto.
+17. Publicar atomicamente resultados, manifests, checksums e metadados validados em `ready` no network volume.
+18. Terminar/excluir o Pod assim que a fila acabar e `ready` estiver seguro; não esperar o download local com a GPU ligada.
+19. Baixar pela API S3 para `.incoming` e validar novamente SHA-256 e FFprobe localmente.
+20. Mover o job validado para `entregas/<job-id>` e confirmar backup antes de limpar o remoto.
+21. Remover intermediários descartáveis sem apagar pesos ou workflows persistentes nem entregas não confirmadas.
+22. Registrar tempo, custo, GPU, modelo, workflow, seed, LoRA/força, inputs de controle e resultado para melhorar estimativas futuras.
 
 Agrupar cenas em workloads é a estratégia padrão. Não ligar e desligar uma GPU para cada cena isoladamente quando várias cenas já estiverem disponíveis, pois isso repete pull da imagem, boot e carregamento dos modelos.
 
@@ -178,6 +180,23 @@ Os valores executáveis estão em `config/generation-profiles.json` e não devem
 - áudio habilitado por padrão, sujeito ao briefing do job;
 - prompt enhancement desligado inicialmente para preservar reprodutibilidade; se habilitado, armazenar texto expandido e seed.
 
+### 6.2. LoRAs e protocolo A/B obrigatório
+
+As LoRAs são capacidades opcionais pré-configuradas, não melhoradores automáticos de qualidade. Elas permanecem no network volume depois do primeiro download validado, mas somente o perfil escolhido pelo usuário pode ser carregado no job. A ausência de resposta afirmativa significa `lora_ab.enabled=false` e execução baseline; nunca ativar uma LoRA silenciosamente.
+
+Antes de o usuário enviar cada cena, perguntar se haverá comparação A/B sem LoRA versus com LoRA. A pergunta deve ocorrer enquanto nenhuma GPU estiver ativa. Se a resposta for afirmativa, confirmar qual destes controles será testado e pedir o input correspondente:
+
+- `lora_ingredients_bf16`: folha de referência com personagens, produto/objetos, figurino e cenário;
+- `lora_motion_track_bf16`: imagem/vídeo de referência e trajetórias de movimento;
+- `lora_union_control_bf16`: guia estrutural compatível com o workflow Union Control;
+- `lora_outpaint_bf16`: vídeo de origem e máscara binária para inpainting/outpainting.
+
+O teste deve comparar o perfil LoRA com o baseline BF16 indicado em `config/generation-profiles.json`, mantendo travados prompt, negative prompt, seed, materiais de entrada, duração, FPS, frames, aspecto e resolução. Registrar as diferenças de workflow e controle no manifest. Não comparar INT8 baseline com BF16+LoRA como se a diferença viesse apenas da LoRA.
+
+Os workflows oficiais LTX-2.5 fixados neste projeto carregam transformer e text encoder distilled BF16 e adaptadores IC-LoRA treinados sobre LTX-2.3. Por isso, os perfis LoRA começam na RTX PRO 6000 96 GB e com estado `configured_not_gpu_validated`. INT8+LoRA, RTX 5090 e outras combinações só podem ser habilitadas depois de teste real demonstrar compatibilidade, qualidade e custo. Ingredients e Motion Track são os primeiros testes recomendados; Union Control e Outpaint ficam disponíveis para cenas que realmente precisem desses controles.
+
+Pesos e workflows são baixados idempotentemente uma única vez para o volume persistente e validados por tamanho e SHA-256 a partir de `config/models-manifest.json` e `config/workflows-manifest.json`. Uma falha de licença, download ou checksum deve interromper o bootstrap sem marcar o perfil como pronto.
+
 ## 7. GPUs e qualidade — decisão atual e hipóteses históricas
 
 Decisão inicial vigente para o piloto:
@@ -225,7 +244,7 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - Nunca gravar credenciais dentro da imagem Docker ou do `AGENTS.md`.
 - Usar variáveis de ambiente, secrets do Runpod, arquivos de configuração fora do repositório ou mecanismos do registry.
 - A `RUNPOD_API_KEY` já foi configurada localmente pelo usuário por meio de `runpodctl doctor`; não pedir a chave novamente sem evidência de que expirou ou foi revogada.
-- Token da Hugging Face, se necessário, deve ser configurado diretamente como segredo. A aceitação da licença do modelo deve ser verificada separadamente.
+- O usuário aceitou o acesso ao LTX-2.5 e criou um token Hugging Face de leitura; o valor foi cadastrado diretamente no secret Runpod `hf_token` e nunca foi enviado pelo chat. O template deve expô-lo somente como `HF_TOKEN={{ RUNPOD_SECRET_hf_token }}`. Não pedir ou reproduzir o valor. O acesso separado a repositórios gated de LoRA ainda deve ser confirmado no primeiro bootstrap autenticado.
 - Chaves S3 da Runpod são distintas da API key de infraestrutura. Só criar/configurar S3 se o fluxo realmente usar a API compatível com S3.
 - O usuário informou que as credenciais S3 da Runpod já foram criadas no Console. Não criar outra chave sem necessidade. A configuração local ainda deverá ser feita diretamente pelo usuário, sem enviar o segredo pelo chat.
 - Não reutilizar a API key Runpod como credencial de Hugging Face, Docker, GitHub, S3 ou qualquer outro serviço.
@@ -267,13 +286,15 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - `EU-RO-1` foi selecionado como data center recomendado: oferece network volume `STANDARD` e apareceu na disponibilidade das duas GPUs escolhidas. Disponibilidade é dinâmica e deve ser revalidada no provisionamento.
 - A imagem pública `runpod/comfyui:cuda13.0` foi inspecionada e seu índice estava no digest `sha256:094dc6d79448b6f118c4d2b054073f92d765c568598e7a96aaeda678a6bcbf3b`.
 - A recomendação atual fixa ComfyUI `v0.34.0` e `Lightricks/ComfyUI-LTXVideo` no commit `15d09abb5a18`, partindo da imagem CUDA 13 por digest.
-- O modelo oficial atual verificado é LTX-2.5. O pacote de prévia INT8 completo ocupa aproximadamente 44,91 GB; adicionar o conjunto final distilled BF16 leva o inventário de modelos a aproximadamente 113,79 GB antes de software, caches e outputs.
+- O modelo oficial atual verificado é LTX-2.5. O pacote de prévia INT8 completo ocupa aproximadamente 44,91 GB; adicionar o conjunto final distilled BF16 leva o inventário-base a aproximadamente 113,79 GB. Os quatro IC-LoRAs configurados adicionam aproximadamente 3,60 GB, totalizando cerca de 117,39 GB antes de software, caches e outputs.
 - A arquitetura detalhada foi registrada em `docs/arquitetura-inicial.md`; a configuração legível por máquina está em `config/stack.json` e os pesos com tamanhos e SHA-256 estão em `config/models-manifest.json`.
 - O `Dockerfile` derivado da imagem oficial foi preparado sem incluir pesos ou segredos. Ele substitui o bundle por ComfyUI `v0.34.0`, fixa o node LTX e preserva o contrato de inicialização oficial.
 - Como o disco C: tinha cerca de 65 GB livres e o cache do Docker já ocupava cerca de 34,65 GB, o build completo local não foi iniciado. O build foi transferido para o GitHub Actions, que publicou a imagem com SBOM, proveniência e digest imutável.
 - `scripts/pod/download_models.py` baixa apenas o perfil escolhido, exige `HF_TOKEN` quando faltarem pesos e valida tamanho e SHA-256. `scripts/pod/finalize_output.py` executa FFprobe, SHA-256 e publicação atômica em `ready`.
 - O repositório público é `https://github.com/BoaVistaBVShop/axi-ltx-video`. O primeiro build `v0.1.0` concluiu em 2026-08-31 com digest `sha256:d4c9faacc05976dafd64a9cd95ae133e36ec3744e79c5d653a412b18d1ae1ad4`.
 - Os parâmetros iniciais estão em `config/generation-profiles.json`, documentados em `docs/parametros-ltx.md`: preview single-stage INT8 e finais two-stage INT8/BF16, 24 fps, 5 s, 8 passos na primeira etapa, CFG 1 e 3 passos de refine na segunda etapa.
+- O usuário aceitou o acesso ao LTX-2.5, criou um token Hugging Face somente leitura e armazenou seu valor como secret Runpod `hf_token`; o conteúdo do token não foi visto nem registrado no workspace.
+- Quatro modos IC-LoRA foram configurados sem serem ativados por padrão: Ingredients, Motion Track, Union Control e Outpaint. Seus pesos, perfis e workflows estão declarados nos manifests, mas ainda exigem download autenticado, validação de checksum e teste real em GPU antes de serem descritos como operacionais.
 
 Não incluir no repositório e não reproduzir em respostas o e-mail, ID interno da conta ou qualquer segredo retornado pelas ferramentas.
 
@@ -284,16 +305,20 @@ Concluído e versionado:
 - repositório público `https://github.com/BoaVistaBVShop/axi-ltx-video`, branch `main`;
 - Dockerfile, build no GitHub Actions e imagem `ghcr.io/boavistabvshop/axi-ltx-video:v0.1.0` publicada no digest registrado em `config/stack.json`;
 - manifest de modelos com tamanho e SHA-256, perfis de geração e arquitetura inicial;
+- manifest de workflows fixado por commit e SHA-256, quatro perfis IC-LoRA BF16 selecionáveis e política obrigatória de confirmação A/B por cena;
 - scripts no Pod para download/validação idempotente de modelos e publicação atômica de outputs em `ready`;
+- script idempotente para baixar e validar workflows no network volume;
 - ambiente local Runpod autenticado, `runpodctl` funcional e perfil S3 configurado sem segredos no repositório;
 - decisão de Secure Cloud, `EU-RO-1`, volume `STANDARD` de 200 GB, RTX 5090 para prévia e RTX PRO 6000 para final, ainda sujeita à revalidação de preço/disponibilidade no provisionamento.
 
 Ainda não concluído ou não autorizado:
 
 - confirmar que a imagem GHCR está acessível pela Runpod: a visibilidade do pacote foi observada como privada; tornar pública exige confirmação explícita do usuário, ou alternativamente configurar autenticação de registry privado;
+- construir e publicar uma nova versão imutável da imagem depois destas mudanças, pois `v0.1.0` não contém o novo manifest de workflows, o downloader de workflows nem os perfis LoRA; até isso ocorrer, `config/stack.json` mantém `next_build_required=true`;
 - testar a conexão SSH real no primeiro Pod e o port forwarding local para a API interna do ComfyUI; SSH é condição de continuidade, não etapa opcional;
 - implementar e versionar os scripts locais de orquestração SSH para bootstrap, readiness, execução, acompanhamento, fail-safe e teardown;
-- aceitar a licença e confirmar acesso aos pesos LTX-2.5 na Hugging Face; configurar `HF_TOKEN` apenas como segredo;
+- confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;
+- aceitar, quando exigido pela Hugging Face, o acesso separado aos repositórios gated de Ingredients e In/Outpainting; validar por download autenticado os hashes marcados como pendentes no manifest;
 - obter autorização explícita antes de criar o network volume de 200 GB `STANDARD` em `EU-RO-1`, template ou qualquer Pod cobrado;
 - criar template, network volume e primeiro Pod de configuração;
 - carregar os modelos no volume uma única vez e testar autenticação S3 contra o volume real;
@@ -328,6 +353,7 @@ A conversa anterior observou um worker comunitário de LTX recente e configurado
 - Nunca excluir volume persistente, modelos ou outputs importantes sem resolver exatamente o alvo e obter autorização apropriada.
 - Preservar alterações do usuário e não executar comandos destrutivos amplos.
 - Manter o usuário informado antes de qualquer etapa cobrada ou decisão que altere qualidade, privacidade ou custo.
+- Antes de pedir o envio de cada cena, perguntar sempre se haverá teste A/B sem LoRA versus com LoRA; registrar a resposta e nunca reaproveitar automaticamente a escolha de outra cena.
 - Toda alteração futura de imagem, template, workflow ou modelo deve gerar uma nova versão registrada, com possibilidade de rollback.
 - Não usar as imagens em `docs/assets/` como fonte normativa; elas são explicações visuais. Em divergência, prevalecem este arquivo e os manifests versionados.
 
@@ -349,3 +375,4 @@ A configuração inicial só estará concluída quando:
 12. o downloader S3 provar `ready → .incoming → entregas/<job-id>` com dupla validação e sem Pod ativo;
 13. falhas de bootstrap, render ou download deixarem estado retomável e não deixarem Pod/GPU órfão;
 14. o usuário receber um comando ou ação simples equivalente a “iniciar, gerar, receber e encerrar”, sem configuração manual recorrente.
+15. cada perfil LoRA habilitado tiver passado por download autenticado, checksum e A/B real contra o baseline BF16 correspondente, mantendo os parâmetros comparáveis travados.

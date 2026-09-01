@@ -50,12 +50,14 @@ Tamanhos obtidos dos arquivos oficiais do LTX-2.5 e convertidos para planejament
 | Prévia INT8 + refinamento | 45,50 GB |
 | INT8 completo + transformer dev INT8 | 67,01 GB |
 | INT8 completo + conjunto final distilled BF16 | 113,79 GB |
+| Quatro IC-LoRAs opcionais configurados | 3,60 GB |
+| Total de pesos configurados | aproximadamente 117,39 GB |
 
 Por isso:
 
 - 100 GB é apertado para software, caches e outputs;
 - 150 GB serve para uma implantação inicialmente concentrada em INT8, mas deixa pouca margem se o BF16 for adicionado;
-- 200 GB comporta prévia INT8, final BF16, ComfyUI, caches e uma margem operacional coerente com a recomendação oficial de 200 GB de SSD do LTX-2.5.
+- 200 GB comporta prévia INT8, final BF16, os quatro IC-LoRAs, ComfyUI, caches e uma margem operacional coerente com a recomendação oficial de 200 GB de SSD do LTX-2.5.
 
 Na tarifa de referência de US$ 0,07/GB/mês, 200 GB equivalem a aproximadamente US$ 14/mês, cobrados proporcionalmente enquanto o volume existir. Com o saldo observado de US$ 10, o volume não deve ser criado sem decisão explícita sobre recarga e duração do piloto.
 

@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "snapshot_date": "2026-08-31",
   "runpod": {
     "cloud": "SECURE",
@@ -11,6 +11,9 @@
     },
     "container_disk_gb": 150,
     "ports": ["22/tcp"],
+    "secret_environment": {
+      "HF_TOKEN": "{{ RUNPOD_SECRET_hf_token }}"
+    },
     "access": {
       "control_plane": ["MCP", "runpodctl", "REST_API"],
       "pod_operations": "SSH_ONLY",
@@ -40,12 +43,17 @@
     "platform": "linux/amd64",
     "comfyui_version": "v0.34.0",
     "comfyui_commit": "12d5279438bfefc058a269eae805ceab6047777f",
-    "ltxvideo_commit": "15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d"
+    "ltxvideo_commit": "15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d",
+    "contains_lora_configuration": false,
+    "next_build_required": true
   },
   "paths": {
     "comfyui": "/workspace/runpod-slim/ComfyUI",
     "models": "/workspace/models",
+    "workflows": "/workspace/workflows",
     "jobs": "/workspace/jobs",
-    "generation_profiles": "config/generation-profiles.json"
+    "generation_profiles": "config/generation-profiles.json",
+    "models_manifest": "config/models-manifest.json",
+    "workflows_manifest": "config/workflows-manifest.json"
   }
 }

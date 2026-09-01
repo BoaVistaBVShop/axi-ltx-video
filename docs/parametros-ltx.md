@@ -15,6 +15,8 @@ Snapshot: 2026-08-31. Os valores de `config/generation-profiles.json` são o pon
 | `use_image_input` | Liga T2V ou I2V | `false` para texto; `true` para usar uma imagem inicial |
 | `input_image` | Primeiro quadro/referência visual | Obrigatório quando `use_image_input=true` |
 | `audio_enabled` | Gera áudio sincronizado | Ligado por padrão; pode ser desligado por job |
+| `lora_ab.enabled` | Autoriza comparar baseline e LoRA | Sempre perguntar antes do envio de cada cena; `false` por padrão |
+| `lora_ab.profile` | Seleciona o controle LoRA | Ingredients, Motion Track, Union Control ou Outpaint |
 
 ## O que fica travado no perfil
 
@@ -41,6 +43,21 @@ O modelo distilled usa uma agenda curta de oito passos e já incorpora guidance 
 ### Final BF16
 
 É igual ao final INT8, mas troca transformer e text encoder pelos pesos BF16. Só deve ser usado depois que um benchmark lado a lado provar ganho visual suficiente para justificar download, armazenamento e tempo maiores.
+
+### Perfis IC-LoRA
+
+Os quatro perfis estão configurados, mas começam como `configured_not_gpu_validated`:
+
+| Perfil | Finalidade | Input obrigatório | Baseline A/B |
+|---|---|---|---|
+| `lora_ingredients_bf16` | consistência de personagem, produto, figurino e cenário | folha de referências | `baseline_bf16_single_stage` |
+| `lora_motion_track_bf16` | controlar trajetórias | imagem/vídeo e motion tracks | `baseline_bf16_single_stage` |
+| `lora_union_control_bf16` | controle estrutural combinado | guia Union Control | `final_bf16` |
+| `lora_outpaint_bf16` | preencher ou expandir vídeo | vídeo de origem e máscara binária | `final_bf16` |
+
+Antes de pedir o envio de cada cena, perguntar se haverá teste A/B com LoRA e qual perfil será usado. A resposta não é herdada de outra cena. Sem confirmação, nenhum peso LoRA é carregado. Quando autorizado, baseline e variante mantêm iguais prompt, negative prompt, seed, inputs, duração, FPS, frames, aspecto e resolução.
+
+Os exemplos oficiais LTX-2.5 usados aqui combinam transformer/text encoder distilled BF16 com IC-LoRAs treinados sobre LTX-2.3. Os primeiros testes, portanto, usam RTX PRO 6000 96 GB. Não atribuir diferenças entre INT8 e BF16 à LoRA e não habilitar INT8+LoRA até existir validação específica.
 
 ## Resolução e entrega
 
@@ -85,5 +102,9 @@ Para continuidade, cenas diferentes devem reutilizar literalmente os descritores
 ## Fontes primárias
 
 - <https://github.com/Lightricks/ComfyUI-LTXVideo/tree/master/example_workflows/2.5>
+- <https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Ingredients>
+- <https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Motion-Track-Control>
+- <https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-Union-Control>
+- <https://huggingface.co/Lightricks/LTX-2.3-22b-IC-LoRA-In-Outpainting>
 - <https://docs.ltx.io/open-source-model/usage-guides/two-stage-generation>
 - <https://docs.ltx.io/open-source-model/usage-guides/prompting-guide>

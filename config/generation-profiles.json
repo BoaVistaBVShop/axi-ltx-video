@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_workflows_commit": "15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d",
   "common": {
     "fps": 24,
@@ -17,6 +17,24 @@
       "mode": "explicit",
       "preview_variations": 2,
       "reuse_selected_seed_for_final": true
+    },
+    "lora_ab_policy": {
+      "ask_user_before_scene_submission": true,
+      "decision_required_per_scene": true,
+      "default_enabled": false,
+      "never_auto_select_lora": true,
+      "record_in_job_manifest": true,
+      "comparison_lock": [
+        "positive_prompt",
+        "negative_prompt",
+        "seed",
+        "input_assets",
+        "duration_seconds",
+        "fps",
+        "frame_count",
+        "aspect",
+        "resolution"
+      ]
     }
   },
   "aspects": {
@@ -100,6 +118,109 @@
       "inherits": "final_int8",
       "model_profile": "final-bf16",
       "use_only_after_benchmark": true
+    },
+    "baseline_bf16_single_stage": {
+      "workflow": "LTX-2.5_T2V_I2V_Single_Stage_Distilled.json",
+      "model_profile": "baseline-bf16-single-stage",
+      "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "comparison_only": true,
+      "stage_1": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler": "euler_ancestral"
+      }
+    },
+    "lora_ingredients_bf16": {
+      "workflow": "LTX-2.5_ICLoRA_Ingredients_Single_Stage_Distilled.json",
+      "model_profile": "lora-ingredients-bf16",
+      "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "requires_user_confirmation_per_scene": true,
+      "validation_status": "configured_not_gpu_validated",
+      "ab_baseline_profile": "baseline_bf16_single_stage",
+      "lora_strength": "pinned_workflow_default",
+      "control_input": {
+        "type": "reference_sheet",
+        "required": true,
+        "recommended_test_width": 768,
+        "recommended_test_height": 448,
+        "recommended_test_frames": 121,
+        "recommended_test_fps": 24
+      },
+      "stage_1": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler": "euler_ancestral"
+      }
+    },
+    "lora_motion_track_bf16": {
+      "workflow": "LTX-2.5_ICLoRA_Motion_Track_Distilled.json",
+      "model_profile": "lora-motion-track-bf16",
+      "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "requires_user_confirmation_per_scene": true,
+      "validation_status": "configured_not_gpu_validated",
+      "ab_baseline_profile": "baseline_bf16_single_stage",
+      "lora_strength": "pinned_workflow_default",
+      "control_input": {
+        "type": "motion_tracks",
+        "required": true,
+        "reference_downscale_factor": 0.5
+      },
+      "stage_1": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler": "euler_ancestral"
+      }
+    },
+    "lora_union_control_bf16": {
+      "workflow": "LTX-2.5_ICLoRA_Union_Control_Distilled.json",
+      "model_profile": "lora-union-control-bf16",
+      "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "requires_user_confirmation_per_scene": true,
+      "validation_status": "configured_not_gpu_validated",
+      "ab_baseline_profile": "final_bf16",
+      "lora_strength": "pinned_workflow_default",
+      "control_input": {
+        "type": "union_control_guide",
+        "required": true,
+        "reference_downscale_factor": 0.5
+      },
+      "stage_1": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler": "euler_ancestral"
+      },
+      "stage_2": {
+        "spatial_upscale": 2,
+        "steps": 3,
+        "cfg": 1.0,
+        "sampler": "euler",
+        "reuse_seed": true
+      }
+    },
+    "lora_outpaint_bf16": {
+      "workflow": "LTX-2.5_ICLoRA_Outpaint_Two_Stage_Distilled.json",
+      "model_profile": "lora-outpaint-bf16",
+      "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
+      "requires_user_confirmation_per_scene": true,
+      "validation_status": "configured_not_gpu_validated",
+      "ab_baseline_profile": "final_bf16",
+      "lora_strength": "pinned_workflow_default",
+      "control_input": {
+        "type": "source_video_and_binary_mask",
+        "required": true
+      },
+      "stage_1": {
+        "steps": 8,
+        "cfg": 1.0,
+        "sampler": "euler_ancestral"
+      },
+      "stage_2": {
+        "spatial_upscale": 2,
+        "steps": 3,
+        "cfg": 1.0,
+        "sampler": "euler",
+        "reuse_seed": true
+      }
     }
   }
 }

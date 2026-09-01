@@ -18,7 +18,8 @@ Nenhuma credencial, peso de modelo ou material de cliente é incluído na imagem
 - plataforma: `linux/amd64`;
 - ComfyUI: `v0.34.0` / commit fixado;
 - `ComfyUI-LTXVideo`: commit fixado;
-- modelos: LTX-2.5 com tamanho e SHA-256 registrados em `config/models-manifest.json`.
+- modelos e IC-LoRAs com tamanho e SHA-256 registrados em `config/models-manifest.json`;
+- workflows oficiais fixados por commit e SHA-256 em `config/workflows-manifest.json`.
 
 ## Build da imagem
 
@@ -52,8 +53,24 @@ Perfis disponíveis:
 - `preview`: distilled INT8 ConvRot;
 - `final-int8`: conjunto INT8 para finalização econômica;
 - `final-bf16`: componentes BF16 para a GPU final de maior VRAM.
+- `baseline-bf16-single-stage`: baseline comparável aos IC-LoRAs single-stage;
+- `lora-ingredients-bf16`: consistência por folha de referências;
+- `lora-motion-track-bf16`: controle por trajetórias;
+- `lora-union-control-bf16`: controle estrutural combinado;
+- `lora-outpaint-bf16`: inpainting/outpainting com vídeo e máscara.
 
 Cada arquivo é validado por tamanho e SHA-256 antes de ser considerado pronto.
+O workflow correspondente é preparado pelo mesmo perfil:
+
+```bash
+python /opt/ltx-stack/download_models.py --profile lora-ingredients-bf16
+python /opt/ltx-stack/download_workflows.py --profile lora-ingredients-bf16
+```
+
+Os perfis LoRA não são ativados automaticamente. Antes do envio de cada cena, o
+operador deve perguntar se haverá A/B baseline versus LoRA e registrar a resposta
+no manifest do job. Os workflows oficiais configurados usam BF16 e começam na
+RTX PRO 6000; a combinação INT8+LoRA permanece desabilitada até benchmark real.
 
 ## Documentação
 
@@ -61,6 +78,7 @@ Cada arquivo é validado por tamanho e SHA-256 antes de ser considerado pronto.
 - `docs/parametros-ltx.md`: parâmetros criativos e perfis técnicos;
 - `config/stack.json`: configuração planejada da Runpod;
 - `config/generation-profiles.json`: presets de prévia e final;
+- `config/workflows-manifest.json`: origem, versão e integridade dos workflows;
 - `AGENTS.md`: regras operacionais e estado completo do projeto.
 
 Nenhum recurso cobrável da Runpod deve ser criado sem aprovação explícita do orçamento correspondente.
