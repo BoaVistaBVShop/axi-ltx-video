@@ -65,15 +65,18 @@ COPY config/generation-profiles.json /opt/ltx-stack/generation-profiles.json
 COPY scripts/pod/download_models.py /opt/ltx-stack/download_models.py
 COPY scripts/pod/download_workflows.py /opt/ltx-stack/download_workflows.py
 COPY scripts/pod/finalize_output.py /opt/ltx-stack/finalize_output.py
+COPY scripts/pod/bootstrap.py /opt/ltx-stack/bootstrap.py
 
 RUN chmod 0755 /usr/local/bin/ltx-healthcheck \
     /opt/ltx-stack/download_models.py \
     /opt/ltx-stack/download_workflows.py \
     /opt/ltx-stack/finalize_output.py \
+    /opt/ltx-stack/bootstrap.py \
     && python3.12 -m py_compile \
     /opt/ltx-stack/download_models.py \
     /opt/ltx-stack/download_workflows.py \
-    /opt/ltx-stack/finalize_output.py
+    /opt/ltx-stack/finalize_output.py \
+    /opt/ltx-stack/bootstrap.py
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5m --retries=3 \
   CMD ["/usr/local/bin/ltx-healthcheck"]

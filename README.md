@@ -38,6 +38,18 @@ ghcr.io/boavistabvshop/axi-ltx-video:<tag>
 
 O template Runpod deve usar o digest imutável produzido pelo build, não uma tag flutuante.
 
+## Operação local por SSH
+
+Valide a estação local sem criar recursos:
+
+```powershell
+.\scripts\local\axi-ltx.ps1 doctor
+```
+
+A CLI oferece comandos fechados para readiness, bootstrap idempotente, túnel
+local do ComfyUI, submissão/retomada, publicação em `ready`, watchdog e teardown.
+O contrato completo e os exemplos estão em `docs/orquestracao-ssh.md`.
+
 ## Modelos no volume
 
 Depois de aceitar a licença do modelo na Hugging Face e configurar `HF_TOKEN` como segredo no Pod:
@@ -76,6 +88,7 @@ RTX PRO 6000; a combinação INT8+LoRA permanece desabilitada até benchmark rea
 
 - `docs/arquitetura-inicial.md`: arquitetura, custos e decisões;
 - `docs/parametros-ltx.md`: parâmetros criativos e perfis técnicos;
+- `docs/orquestracao-ssh.md`: CLI local, segurança SSH, watchdog e recuperação;
 - `config/stack.json`: configuração planejada da Runpod;
 - `config/generation-profiles.json`: presets de prévia e final;
 - `config/workflows-manifest.json`: origem, versão e integridade dos workflows;

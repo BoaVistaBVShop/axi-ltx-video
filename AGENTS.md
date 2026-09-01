@@ -296,6 +296,7 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - Os parâmetros iniciais estão em `config/generation-profiles.json`, documentados em `docs/parametros-ltx.md`: preview single-stage INT8 e finais two-stage INT8/BF16, 24 fps, 5 s, 8 passos na primeira etapa, CFG 1 e 3 passos de refine na segunda etapa.
 - O usuário aceitou o acesso ao LTX-2.5 e, após confirmação específica sobre o compartilhamento de dados, aceitou também os repositórios gated Ingredients e In/Outpainting. Criou um token Hugging Face somente leitura e armazenou seu valor como secret Runpod `hf_token`; o conteúdo do token não foi visto nem registrado no workspace.
 - Quatro modos IC-LoRA foram configurados sem serem ativados por padrão: Ingredients, Motion Track, Union Control e Outpaint. Seus pesos, perfis e workflows estão declarados nos manifests, e os metadados oficiais de tamanho/SHA-256 foram confirmados. Eles ainda exigem download autenticado, validação local do arquivo e teste real em GPU antes de serem descritos como operacionais.
+- A orquestração local SSH foi implementada em `scripts/local/runpod_ssh.py`, com wrapper PowerShell `scripts/local/axi-ltx.ps1`: diagnóstico, readiness, túnel local do ComfyUI, bootstrap, submissão/retomada idempotente, finalize, watchdog e teardown com confirmação exata. O bootstrap remoto está em `scripts/pod/bootstrap.py`, usa lock e marcador atômico e não imprime segredos. Treze testes locais passaram, mas nenhum desses fluxos pode ser descrito como validado na Runpod antes do primeiro Pod real.
 
 Não incluir no repositório e não reproduzir em respostas o e-mail, ID interno da conta ou qualquer segredo retornado pelas ferramentas.
 
@@ -309,13 +310,15 @@ Concluído e versionado:
 - manifest de workflows fixado por commit e SHA-256, quatro perfis IC-LoRA BF16 selecionáveis e política obrigatória de confirmação A/B por cena;
 - scripts no Pod para download/validação idempotente de modelos e publicação atômica de outputs em `ready`;
 - script idempotente para baixar e validar workflows no network volume;
+- CLI local e bootstrap remoto versionados, com `known_hosts` isolado por Pod, auditoria redigida, túnel apenas em localhost, retomada por `job-id`, watchdog e teardown limitado a um ID exato;
 - ambiente local Runpod autenticado, `runpodctl` funcional e perfil S3 configurado sem segredos no repositório;
 - decisão de Secure Cloud, `EU-RO-1`, volume `STANDARD` de 200 GB, RTX 5090 para prévia e RTX PRO 6000 para final, ainda sujeita à revalidação de preço/disponibilidade no provisionamento.
 
 Ainda não concluído ou não autorizado:
 
 - testar a conexão SSH real no primeiro Pod e o port forwarding local para a API interna do ComfyUI; SSH é condição de continuidade, não etapa opcional;
-- implementar e versionar os scripts locais de orquestração SSH para bootstrap, readiness, execução, acompanhamento, fail-safe e teardown;
+- construir e publicar uma nova versão imutável da imagem contendo `/opt/ltx-stack/bootstrap.py`; enquanto isso, `config/stack.json` mantém `next_build_required=true` e a imagem `v0.2.0` não deve ser usada para o primeiro bootstrap;
+- testar em um Pod real a CLI local e o bootstrap remoto, incluindo host key isolada, túnel, retomada, watchdog e teardown; os testes locais não substituem essa aceitação;
 - confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;
 - comprovar no primeiro bootstrap o download autenticado e o SHA-256 local dos quatro pesos IC-LoRA, embora os acessos gated e os metadados oficiais já estejam confirmados;
 - obter autorização explícita antes de criar o network volume de 200 GB `STANDARD` em `EU-RO-1`, template ou qualquer Pod cobrado;

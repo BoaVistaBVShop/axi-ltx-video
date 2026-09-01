@@ -20,5 +20,6 @@ outputs/
 
 # Local caches
 .cache/
+.runpod/
 __pycache__/
 *.pyc
