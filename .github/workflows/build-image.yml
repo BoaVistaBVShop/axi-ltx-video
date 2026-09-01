@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: Immutable image tag, for example v0.1.0
+        description: Immutable image tag, for example v0.3.0
         required: true
         default: v0.3.0
 

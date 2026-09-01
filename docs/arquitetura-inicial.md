@@ -75,7 +75,7 @@ A tag pública `runpod/comfyui:cuda13.0` será usada apenas como origem. A image
 
 Os pesos não entram na imagem: ficam no network volume. Assim, atualizar a automação não obriga a reenviar mais de 100 GB de modelos ao registry, e recriar um Pod não baixa tudo novamente.
 
-O build em `.github/workflows/build-image.yml` ocorre no GitHub Actions e publica no GitHub Container Registry (GHCR), evitando consumir dezenas de gigabytes no Docker Desktop local. A imagem vigente `v0.2.0` e seu digest imutável estão em `config/stack.json`; o workflow continua manual, com actions fixadas por commit, SBOM e proveniência.
+O build em `.github/workflows/build-image.yml` ocorre no GitHub Actions e publica no GitHub Container Registry (GHCR), evitando consumir dezenas de gigabytes no Docker Desktop local. A imagem vigente `v0.3.0` e seu digest imutável estão em `config/stack.json`; o workflow continua manual, com actions fixadas por commit, SBOM e proveniência.
 
 Por decisão explícita mais recente do usuário, o pacote `axi-ltx-video` é público no GHCR. A política da organização foi atualizada com autorização específica e o acesso anônimo à tag e ao digest vigentes foi validado. O template Runpod poderá obter a imagem sem credencial de registry. Pesos gated, tokens, credenciais S3 e materiais de cliente permanecem fora da imagem.
 

@@ -291,7 +291,7 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - O `Dockerfile` derivado da imagem oficial foi preparado sem incluir pesos ou segredos. Ele substitui o bundle por ComfyUI `v0.34.0`, fixa o node LTX e preserva o contrato de inicialização oficial.
 - Como o disco C: tinha cerca de 65 GB livres e o cache do Docker já ocupava cerca de 34,65 GB, o build completo local não foi iniciado. O build foi transferido para o GitHub Actions, que publicou a imagem com SBOM, proveniência e digest imutável.
 - `scripts/pod/download_models.py` baixa apenas o perfil escolhido, exige `HF_TOKEN` quando faltarem pesos e valida tamanho e SHA-256. `scripts/pod/finalize_output.py` executa FFprobe, SHA-256 e publicação atômica em `ready`.
-- O repositório público é `https://github.com/BoaVistaBVShop/axi-ltx-video`. O primeiro build `v0.1.0` concluiu em 2026-08-31 com digest `sha256:d4c9faacc05976dafd64a9cd95ae133e36ec3744e79c5d653a412b18d1ae1ad4`. A imagem vigente `v0.2.0`, construída pelo GitHub Actions a partir do commit `34a4460e261507381f83723d79c5487360c9631a`, concluiu com sucesso no run `33455506396` e tem digest imutável `sha256:44e2dbddb2e5109159b55a058948f8c82d78f71bf41e2db9773d836202ee87f9`; ela contém os manifests, perfis e downloader de workflows LoRA.
+- O repositório público é `https://github.com/BoaVistaBVShop/axi-ltx-video`. Os builds `v0.1.0` e `v0.2.0` permanecem como histórico. A imagem vigente `v0.3.0`, construída pelo GitHub Actions a partir do commit `12c5f5e011a77f354feac89cd41bedff01ae8921`, concluiu com sucesso no run `33465321270` e tem digest imutável `sha256:4c4bb6e4e123193866adda10fc041d586e673fa36dee4304d2b5fcae5d9f014d`; ela contém os manifests, perfis, downloaders e `/opt/ltx-stack/bootstrap.py`.
 - Por decisão explícita mais recente do usuário, o pacote `axi-ltx-video` no GHCR é **público**. A permissão organizacional para criação de pacotes públicos foi habilitada com autorização específica, e o pull anônimo da tag e do digest vigente foi comprovado com `docker buildx imagetools inspect`. O template Runpod não deve usar autenticação de container registry para esta imagem. Tornar a imagem pública não expõe `HF_TOKEN`, pesos gated, credenciais S3 nem materiais de cliente, pois esses artefatos não fazem parte da imagem.
 - Os parâmetros iniciais estão em `config/generation-profiles.json`, documentados em `docs/parametros-ltx.md`: preview single-stage INT8 e finais two-stage INT8/BF16, 24 fps, 5 s, 8 passos na primeira etapa, CFG 1 e 3 passos de refine na segunda etapa.
 - O usuário aceitou o acesso ao LTX-2.5 e, após confirmação específica sobre o compartilhamento de dados, aceitou também os repositórios gated Ingredients e In/Outpainting. Criou um token Hugging Face somente leitura e armazenou seu valor como secret Runpod `hf_token`; o conteúdo do token não foi visto nem registrado no workspace.
@@ -305,7 +305,7 @@ Não incluir no repositório e não reproduzir em respostas o e-mail, ID interno
 Concluído e versionado:
 
 - repositório público `https://github.com/BoaVistaBVShop/axi-ltx-video`, branch `main`;
-- Dockerfile, build no GitHub Actions e imagem vigente `ghcr.io/boavistabvshop/axi-ltx-video:v0.2.0` publicada no digest imutável registrado em `config/stack.json`; `v0.1.0` permanece apenas como histórico;
+- Dockerfile, build no GitHub Actions e imagem vigente `ghcr.io/boavistabvshop/axi-ltx-video:v0.3.0` publicada no digest imutável registrado em `config/stack.json`; versões anteriores permanecem apenas como histórico;
 - manifest de modelos com tamanho e SHA-256, perfis de geração e arquitetura inicial;
 - manifest de workflows fixado por commit e SHA-256, quatro perfis IC-LoRA BF16 selecionáveis e política obrigatória de confirmação A/B por cena;
 - scripts no Pod para download/validação idempotente de modelos e publicação atômica de outputs em `ready`;
@@ -317,7 +317,6 @@ Concluído e versionado:
 Ainda não concluído ou não autorizado:
 
 - testar a conexão SSH real no primeiro Pod e o port forwarding local para a API interna do ComfyUI; SSH é condição de continuidade, não etapa opcional;
-- construir e publicar uma nova versão imutável da imagem contendo `/opt/ltx-stack/bootstrap.py`; enquanto isso, `config/stack.json` mantém `next_build_required=true` e a imagem `v0.2.0` não deve ser usada para o primeiro bootstrap;
 - testar em um Pod real a CLI local e o bootstrap remoto, incluindo host key isolada, túnel, retomada, watchdog e teardown; os testes locais não substituem essa aceitação;
 - confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;
 - comprovar no primeiro bootstrap o download autenticado e o SHA-256 local dos quatro pesos IC-LoRA, embora os acessos gated e os metadados oficiais já estejam confirmados;

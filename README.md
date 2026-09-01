@@ -27,7 +27,7 @@ O workflow `Build pinned LTX image` é manual. No GitHub:
 
 1. abra **Actions**;
 2. selecione **Build pinned LTX image**;
-3. execute com uma tag semântica, por exemplo `v0.1.0`;
+3. execute com uma nova tag semântica, por exemplo `v0.3.0`;
 4. registre o digest retornado no resumo do job.
 
 A imagem é publicada como:
