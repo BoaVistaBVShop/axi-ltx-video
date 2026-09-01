@@ -77,7 +77,7 @@ Os pesos não entram na imagem: ficam no network volume. Assim, atualizar a auto
 
 O build em `.github/workflows/build-image.yml` ocorre no GitHub Actions e publica no GitHub Container Registry (GHCR), evitando consumir dezenas de gigabytes no Docker Desktop local. A imagem vigente `v0.2.0` e seu digest imutável estão em `config/stack.json`; o workflow continua manual, com actions fixadas por commit, SBOM e proveniência.
 
-Por decisão explícita do usuário, o pacote deve permanecer privado no GHCR. Será cadastrada autenticação específica de container registry na Runpod e vinculada ao template. Essa autenticação é independente das credenciais S3, da API key da Runpod e do token Hugging Face, e nenhum de seus segredos será versionado.
+Por decisão explícita mais recente do usuário, o pacote `axi-ltx-video` é público no GHCR. A política da organização foi atualizada com autorização específica e o acesso anônimo à tag e ao digest vigentes foi validado. O template Runpod poderá obter a imagem sem credencial de registry. Pesos gated, tokens, credenciais S3 e materiais de cliente permanecem fora da imagem.
 
 A variante NVFP4 não será a base inicial. A integração LTX-2.5/ComfyUI ainda é recente e há relatos oficiais recentes de incompatibilidades específicas; o primeiro caminho deve reproduzir o workflow INT8 ConvRot oficial em Linux. Depois do smoke test, BF16 e NVFP4 podem ser comparados por qualidade, memória, tempo e estabilidade.
 
@@ -114,10 +114,9 @@ O custo real por cena ainda não pode ser estimado com honestidade sem um benchm
 
 ## Próximas dependências antes de provisionar
 
-1. configurar e testar na Runpod a autenticação específica para obter a imagem privada do GHCR;
-2. confirmar o orçamento persistente do volume de 200 GB e o teto do piloto;
-3. fornecer duas cenas/referências representativas e os parâmetros de entrega;
-4. então criar volume/template, testar SSH, carregar os modelos uma vez e executar dois testes de recriação.
+1. confirmar o orçamento persistente do volume de 200 GB e o teto do piloto;
+2. fornecer duas cenas/referências representativas e os parâmetros de entrega;
+3. então criar volume/template, testar SSH, carregar os modelos uma vez e executar dois testes de recriação.
 
 ## Fontes primárias
 
