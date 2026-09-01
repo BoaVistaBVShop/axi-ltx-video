@@ -316,6 +316,7 @@ Concluído e versionado:
 
 Ainda não concluído ou não autorizado:
 
+- implementar e testar o controlador de criação protegida que inicia um watchdog externo antes de chamar a criação do Pod, persiste imediatamente o ID retornado e entrega esse ID ao guardião; o watchdog por `pod-id` já existe, mas o primeiro provisionamento não pode ocorrer até esse encadeamento eliminar a janela de Pod órfão;
 - testar a conexão SSH real no primeiro Pod e o port forwarding local para a API interna do ComfyUI; SSH é condição de continuidade, não etapa opcional;
 - testar em um Pod real a CLI local e o bootstrap remoto, incluindo host key isolada, túnel, retomada, watchdog e teardown; os testes locais não substituem essa aceitação;
 - confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;
