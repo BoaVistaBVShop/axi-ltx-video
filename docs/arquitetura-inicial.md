@@ -75,9 +75,9 @@ A tag pública `runpod/comfyui:cuda13.0` será usada apenas como origem. A image
 
 Os pesos não entram na imagem: ficam no network volume. Assim, atualizar a automação não obriga a reenviar mais de 100 GB de modelos ao registry, e recriar um Pod não baixa tudo novamente.
 
-O build em `.github/workflows/build-image.yml` ocorre no GitHub Actions e publica no GitHub Container Registry (GHCR), evitando consumir dezenas de gigabytes no Docker Desktop local. O primeiro build `v0.1.0` já foi concluído e seu digest imutável está em `config/stack.json`; o workflow continua manual, com actions fixadas por commit, SBOM e proveniência.
+O build em `.github/workflows/build-image.yml` ocorre no GitHub Actions e publica no GitHub Container Registry (GHCR), evitando consumir dezenas de gigabytes no Docker Desktop local. A imagem vigente `v0.2.0` e seu digest imutável estão em `config/stack.json`; o workflow continua manual, com actions fixadas por commit, SBOM e proveniência.
 
-Como a imagem não contém pesos, referências do cliente nem segredos, a opção operacional mais simples é torná-la pública no GHCR. Se o usuário preferir mantê-la privada, será necessário cadastrar autenticação de container registry na Runpod; isso é independente das credenciais S3 já configuradas.
+Por decisão explícita do usuário, o pacote deve permanecer privado no GHCR. Será cadastrada autenticação específica de container registry na Runpod e vinculada ao template. Essa autenticação é independente das credenciais S3, da API key da Runpod e do token Hugging Face, e nenhum de seus segredos será versionado.
 
 A variante NVFP4 não será a base inicial. A integração LTX-2.5/ComfyUI ainda é recente e há relatos oficiais recentes de incompatibilidades específicas; o primeiro caminho deve reproduzir o workflow INT8 ConvRot oficial em Linux. Depois do smoke test, BF16 e NVFP4 podem ser comparados por qualidade, memória, tempo e estabilidade.
 
@@ -114,11 +114,10 @@ O custo real por cena ainda não pode ser estimado com honestidade sem um benchm
 
 ## Próximas dependências antes de provisionar
 
-1. aceitar a licença do `Lightricks/LTX-2.5` na Hugging Face e configurar um token de leitura sem enviá-lo pelo chat;
-2. decidir se o pacote GHCR, observado como privado, será tornado público ou se a Runpod receberá autenticação de registry privado;
-3. confirmar o orçamento persistente do volume de 200 GB e o teto do piloto;
-4. fornecer duas cenas/referências representativas e os parâmetros de entrega;
-5. então criar volume/template, testar SSH, carregar os modelos uma vez e executar dois testes de recriação.
+1. configurar e testar na Runpod a autenticação específica para obter a imagem privada do GHCR;
+2. confirmar o orçamento persistente do volume de 200 GB e o teto do piloto;
+3. fornecer duas cenas/referências representativas e os parâmetros de entrega;
+4. então criar volume/template, testar SSH, carregar os modelos uma vez e executar dois testes de recriação.
 
 ## Fontes primárias
 
