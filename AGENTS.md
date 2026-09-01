@@ -291,7 +291,7 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - O `Dockerfile` derivado da imagem oficial foi preparado sem incluir pesos ou segredos. Ele substitui o bundle por ComfyUI `v0.34.0`, fixa o node LTX e preserva o contrato de inicialização oficial.
 - Como o disco C: tinha cerca de 65 GB livres e o cache do Docker já ocupava cerca de 34,65 GB, o build completo local não foi iniciado. O build foi transferido para o GitHub Actions, que publicou a imagem com SBOM, proveniência e digest imutável.
 - `scripts/pod/download_models.py` baixa apenas o perfil escolhido, exige `HF_TOKEN` quando faltarem pesos e valida tamanho e SHA-256. `scripts/pod/finalize_output.py` executa FFprobe, SHA-256 e publicação atômica em `ready`.
-- O repositório público é `https://github.com/BoaVistaBVShop/axi-ltx-video`. O primeiro build `v0.1.0` concluiu em 2026-08-31 com digest `sha256:d4c9faacc05976dafd64a9cd95ae133e36ec3744e79c5d653a412b18d1ae1ad4`.
+- O repositório público é `https://github.com/BoaVistaBVShop/axi-ltx-video`. O primeiro build `v0.1.0` concluiu em 2026-08-31 com digest `sha256:d4c9faacc05976dafd64a9cd95ae133e36ec3744e79c5d653a412b18d1ae1ad4`. A imagem vigente `v0.2.0`, construída pelo GitHub Actions a partir do commit `34a4460e261507381f83723d79c5487360c9631a`, concluiu com sucesso no run `33455506396` e tem digest imutável `sha256:44e2dbddb2e5109159b55a058948f8c82d78f71bf41e2db9773d836202ee87f9`; ela contém os manifests, perfis e downloader de workflows LoRA.
 - Os parâmetros iniciais estão em `config/generation-profiles.json`, documentados em `docs/parametros-ltx.md`: preview single-stage INT8 e finais two-stage INT8/BF16, 24 fps, 5 s, 8 passos na primeira etapa, CFG 1 e 3 passos de refine na segunda etapa.
 - O usuário aceitou o acesso ao LTX-2.5 e, após confirmação específica sobre o compartilhamento de dados, aceitou também os repositórios gated Ingredients e In/Outpainting. Criou um token Hugging Face somente leitura e armazenou seu valor como secret Runpod `hf_token`; o conteúdo do token não foi visto nem registrado no workspace.
 - Quatro modos IC-LoRA foram configurados sem serem ativados por padrão: Ingredients, Motion Track, Union Control e Outpaint. Seus pesos, perfis e workflows estão declarados nos manifests, e os metadados oficiais de tamanho/SHA-256 foram confirmados. Eles ainda exigem download autenticado, validação local do arquivo e teste real em GPU antes de serem descritos como operacionais.
@@ -303,7 +303,7 @@ Não incluir no repositório e não reproduzir em respostas o e-mail, ID interno
 Concluído e versionado:
 
 - repositório público `https://github.com/BoaVistaBVShop/axi-ltx-video`, branch `main`;
-- Dockerfile, build no GitHub Actions e imagem `ghcr.io/boavistabvshop/axi-ltx-video:v0.1.0` publicada no digest registrado em `config/stack.json`;
+- Dockerfile, build no GitHub Actions e imagem vigente `ghcr.io/boavistabvshop/axi-ltx-video:v0.2.0` publicada no digest imutável registrado em `config/stack.json`; `v0.1.0` permanece apenas como histórico;
 - manifest de modelos com tamanho e SHA-256, perfis de geração e arquitetura inicial;
 - manifest de workflows fixado por commit e SHA-256, quatro perfis IC-LoRA BF16 selecionáveis e política obrigatória de confirmação A/B por cena;
 - scripts no Pod para download/validação idempotente de modelos e publicação atômica de outputs em `ready`;
@@ -314,7 +314,6 @@ Concluído e versionado:
 Ainda não concluído ou não autorizado:
 
 - confirmar que a imagem GHCR está acessível pela Runpod: a visibilidade do pacote foi observada como privada; tornar pública exige confirmação explícita do usuário, ou alternativamente configurar autenticação de registry privado;
-- construir e publicar uma nova versão imutável da imagem depois destas mudanças, pois `v0.1.0` não contém o novo manifest de workflows, o downloader de workflows nem os perfis LoRA; até isso ocorrer, `config/stack.json` mantém `next_build_required=true`;
 - testar a conexão SSH real no primeiro Pod e o port forwarding local para a API interna do ComfyUI; SSH é condição de continuidade, não etapa opcional;
 - implementar e versionar os scripts locais de orquestração SSH para bootstrap, readiness, execução, acompanhamento, fail-safe e teardown;
 - confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;

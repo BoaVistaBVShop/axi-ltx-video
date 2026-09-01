@@ -38,14 +38,14 @@
   },
   "image": {
     "base": "runpod/comfyui:cuda13.0@sha256:094dc6d79448b6f118c4d2b054073f92d765c568598e7a96aaeda678a6bcbf3b",
-    "published": "ghcr.io/boavistabvshop/axi-ltx-video@sha256:d4c9faacc05976dafd64a9cd95ae133e36ec3744e79c5d653a412b18d1ae1ad4",
-    "published_tag": "v0.1.0",
+    "published": "ghcr.io/boavistabvshop/axi-ltx-video@sha256:44e2dbddb2e5109159b55a058948f8c82d78f71bf41e2db9773d836202ee87f9",
+    "published_tag": "v0.2.0",
     "platform": "linux/amd64",
     "comfyui_version": "v0.34.0",
     "comfyui_commit": "12d5279438bfefc058a269eae805ceab6047777f",
     "ltxvideo_commit": "15d09abb5a187a8dcaea2fc31fe51ee96e6c9d0d",
-    "contains_lora_configuration": false,
-    "next_build_required": true
+    "contains_lora_configuration": true,
+    "next_build_required": false
   },
   "paths": {
     "comfyui": "/workspace/runpod-slim/ComfyUI",
