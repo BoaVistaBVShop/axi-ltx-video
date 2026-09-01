@@ -97,7 +97,7 @@
       "workflow_base": "LTX-2.5 distilled BF16",
       "license": "ltx-2-community-license",
       "license_acceptance_required": true,
-      "verification_status": "pending_authenticated_download",
+      "verification_status": "metadata_verified",
       "profiles": ["lora-ingredients-bf16"]
     },
     {
@@ -142,7 +142,7 @@
       "workflow_base": "LTX-2.5 distilled BF16",
       "license": "ltx-2-community-license",
       "license_acceptance_required": true,
-      "verification_status": "pending_authenticated_download",
+      "verification_status": "metadata_verified",
       "profiles": ["lora-outpaint-bf16"]
     }
   ]

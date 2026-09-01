@@ -244,7 +244,7 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - Nunca gravar credenciais dentro da imagem Docker ou do `AGENTS.md`.
 - Usar variáveis de ambiente, secrets do Runpod, arquivos de configuração fora do repositório ou mecanismos do registry.
 - A `RUNPOD_API_KEY` já foi configurada localmente pelo usuário por meio de `runpodctl doctor`; não pedir a chave novamente sem evidência de que expirou ou foi revogada.
-- O usuário aceitou o acesso ao LTX-2.5 e criou um token Hugging Face de leitura; o valor foi cadastrado diretamente no secret Runpod `hf_token` e nunca foi enviado pelo chat. O template deve expô-lo somente como `HF_TOKEN={{ RUNPOD_SECRET_hf_token }}`. Não pedir ou reproduzir o valor. O acesso separado a repositórios gated de LoRA ainda deve ser confirmado no primeiro bootstrap autenticado.
+- O usuário aceitou o acesso ao LTX-2.5 e aos repositórios gated Ingredients e In/Outpainting, e criou um token Hugging Face de leitura; o valor foi cadastrado diretamente no secret Runpod `hf_token` e nunca foi enviado pelo chat. O template deve expô-lo somente como `HF_TOKEN={{ RUNPOD_SECRET_hf_token }}`. Não pedir ou reproduzir o valor. Os aceites compartilharam com a Lightricks o e-mail e nome de usuário da conta, com confirmação explícita do usuário imediatamente antes da submissão.
 - Chaves S3 da Runpod são distintas da API key de infraestrutura. Só criar/configurar S3 se o fluxo realmente usar a API compatível com S3.
 - O usuário informou que as credenciais S3 da Runpod já foram criadas no Console. Não criar outra chave sem necessidade. A configuração local ainda deverá ser feita diretamente pelo usuário, sem enviar o segredo pelo chat.
 - Não reutilizar a API key Runpod como credencial de Hugging Face, Docker, GitHub, S3 ou qualquer outro serviço.
@@ -293,8 +293,8 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - `scripts/pod/download_models.py` baixa apenas o perfil escolhido, exige `HF_TOKEN` quando faltarem pesos e valida tamanho e SHA-256. `scripts/pod/finalize_output.py` executa FFprobe, SHA-256 e publicação atômica em `ready`.
 - O repositório público é `https://github.com/BoaVistaBVShop/axi-ltx-video`. O primeiro build `v0.1.0` concluiu em 2026-08-31 com digest `sha256:d4c9faacc05976dafd64a9cd95ae133e36ec3744e79c5d653a412b18d1ae1ad4`.
 - Os parâmetros iniciais estão em `config/generation-profiles.json`, documentados em `docs/parametros-ltx.md`: preview single-stage INT8 e finais two-stage INT8/BF16, 24 fps, 5 s, 8 passos na primeira etapa, CFG 1 e 3 passos de refine na segunda etapa.
-- O usuário aceitou o acesso ao LTX-2.5, criou um token Hugging Face somente leitura e armazenou seu valor como secret Runpod `hf_token`; o conteúdo do token não foi visto nem registrado no workspace.
-- Quatro modos IC-LoRA foram configurados sem serem ativados por padrão: Ingredients, Motion Track, Union Control e Outpaint. Seus pesos, perfis e workflows estão declarados nos manifests, mas ainda exigem download autenticado, validação de checksum e teste real em GPU antes de serem descritos como operacionais.
+- O usuário aceitou o acesso ao LTX-2.5 e, após confirmação específica sobre o compartilhamento de dados, aceitou também os repositórios gated Ingredients e In/Outpainting. Criou um token Hugging Face somente leitura e armazenou seu valor como secret Runpod `hf_token`; o conteúdo do token não foi visto nem registrado no workspace.
+- Quatro modos IC-LoRA foram configurados sem serem ativados por padrão: Ingredients, Motion Track, Union Control e Outpaint. Seus pesos, perfis e workflows estão declarados nos manifests, e os metadados oficiais de tamanho/SHA-256 foram confirmados. Eles ainda exigem download autenticado, validação local do arquivo e teste real em GPU antes de serem descritos como operacionais.
 
 Não incluir no repositório e não reproduzir em respostas o e-mail, ID interno da conta ou qualquer segredo retornado pelas ferramentas.
 
@@ -318,7 +318,7 @@ Ainda não concluído ou não autorizado:
 - testar a conexão SSH real no primeiro Pod e o port forwarding local para a API interna do ComfyUI; SSH é condição de continuidade, não etapa opcional;
 - implementar e versionar os scripts locais de orquestração SSH para bootstrap, readiness, execução, acompanhamento, fail-safe e teardown;
 - confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;
-- aceitar, quando exigido pela Hugging Face, o acesso separado aos repositórios gated de Ingredients e In/Outpainting; validar por download autenticado os hashes marcados como pendentes no manifest;
+- comprovar no primeiro bootstrap o download autenticado e o SHA-256 local dos quatro pesos IC-LoRA, embora os acessos gated e os metadados oficiais já estejam confirmados;
 - obter autorização explícita antes de criar o network volume de 200 GB `STANDARD` em `EU-RO-1`, template ou qualquer Pod cobrado;
 - criar template, network volume e primeiro Pod de configuração;
 - carregar os modelos no volume uma única vez e testar autenticação S3 contra o volume real;
