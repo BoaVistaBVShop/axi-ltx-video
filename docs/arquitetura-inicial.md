@@ -1,6 +1,17 @@
 # Arquitetura inicial recomendada — Runpod + LTX-2.5
 
-Snapshot técnico: 2026-08-31. Nenhum recurso cobrável foi criado durante esta análise.
+Snapshot técnico inicial: 2026-08-31. Estado provisionado atualizado em 2026-09-01.
+
+## Estado provisionado
+
+Com autorização explícita do usuário, foram criados e verificados somente os dois recursos persistentes abaixo. Nenhum Pod ou GPU foi criado nesta etapa.
+
+| Recurso | Estado verificado em 2026-09-01 |
+|---|---|
+| Network volume | `axi-ltx-video-models-v1` (`134w7utxe6`), `STANDARD`, 200 GB, `EU-RO-1` |
+| Template | `axi-ltx-video-v0.3.0` (`6213ek6yok`), imagem `v0.3.0` pelo digest imutável, container disk de 150 GB, somente `22/tcp`, montagem em `/workspace` |
+
+O template referencia o secret Runpod existente apenas pela variável `HF_TOKEN`; nenhum valor secreto foi registrado. A imagem é pública e o template não usa autenticação de registry. A listagem do volume pela API S3 de `EU-RO-1` também foi validada com o perfil local protegido `runpod-s3`; o volume estava vazio, como esperado.
 
 ## Decisão recomendada
 
@@ -59,7 +70,7 @@ Por isso:
 - 150 GB serve para uma implantação inicialmente concentrada em INT8, mas deixa pouca margem se o BF16 for adicionado;
 - 200 GB comporta prévia INT8, final BF16, os quatro IC-LoRAs, ComfyUI, caches e uma margem operacional coerente com a recomendação oficial de 200 GB de SSD do LTX-2.5.
 
-Na tarifa de referência de US$ 0,07/GB/mês, 200 GB equivalem a aproximadamente US$ 14/mês, cobrados proporcionalmente enquanto o volume existir. Com o saldo observado de US$ 10, o volume não deve ser criado sem decisão explícita sobre recarga e duração do piloto.
+Na tarifa de referência de US$ 0,07/GB/mês, 200 GB equivalem a aproximadamente US$ 14/mês, cobrados proporcionalmente enquanto o volume existir. O usuário autorizou explicitamente esse custo e o volume foi criado em 2026-09-01; portanto, essa cobrança persistente está ativa até o volume ser excluído.
 
 O volume pode crescer depois, mas não deve ser tratado como temporário: ele é o principal custo persistente e continua cobrando mesmo sem Pod.
 
@@ -112,11 +123,12 @@ Além do volume, a GPU é cobrada apenas enquanto o Pod existir:
 
 O custo real por cena ainda não pode ser estimado com honestidade sem um benchmark representativo de duração, resolução, FPS e workflow. O primeiro Pod deverá ter deadline rígido e um teto explícito aprovado pelo usuário. Como a ajuda ao vivo do `runpodctl` 2.12.0 não expõe `--terminate-after`, o limite deve ser garantido por watchdog externo que exclua o Pod pelo plano de controle; uma expiração nativa é apenas uma proteção adicional quando a ferramenta/API em uso confirmar suporte.
 
-## Próximas dependências antes de provisionar
+## Próximas dependências antes do primeiro Pod
 
-1. confirmar o orçamento persistente do volume de 200 GB e o teto do piloto;
-2. fornecer duas cenas/referências representativas e os parâmetros de entrega;
-3. então criar volume/template, testar SSH, carregar os modelos uma vez e executar dois testes de recriação.
+1. obter autorização explícita para o primeiro Pod/GPU e confirmar o teto financeiro do piloto;
+2. criar o Pod descartável pelo template com watchdog externo já armado;
+3. testar SSH, carregar os modelos uma única vez no volume e executar o smoke test;
+4. excluir o Pod e repetir a criação para provar persistência e idempotência.
 
 ## Fontes primárias
 

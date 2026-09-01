@@ -1,13 +1,33 @@
 {
-  "schema_version": 2,
-  "snapshot_date": "2026-08-31",
+  "schema_version": 3,
+  "snapshot_date": "2026-09-01",
   "runpod": {
     "cloud": "SECURE",
     "data_center_id": "EU-RO-1",
     "network_volume": {
+      "id": "134w7utxe6",
+      "name": "axi-ltx-video-models-v1",
       "type": "STANDARD",
       "size_gb": 200,
-      "mount_path": "/workspace"
+      "data_center_id": "EU-RO-1",
+      "mount_path": "/workspace",
+      "state": "PROVISIONED_VERIFIED",
+      "s3_list_verified": true,
+      "verified_at": "2026-09-01T22:50:03Z"
+    },
+    "template": {
+      "id": "6213ek6yok",
+      "name": "axi-ltx-video-v0.3.0",
+      "state": "PROVISIONED_VERIFIED",
+      "image": "ghcr.io/boavistabvshop/axi-ltx-video@sha256:4c4bb6e4e123193866adda10fc041d586e673fa36dee4304d2b5fcae5d9f014d",
+      "container_disk_gb": 150,
+      "ports": ["22/tcp"],
+      "volume_mount_path": "/workspace",
+      "registry_auth_id": null,
+      "secret_environment_keys": ["HF_TOKEN"],
+      "ssh_enabled": true,
+      "http_services_exposed": false,
+      "verified_at": "2026-09-01T22:50:03Z"
     },
     "container_disk_gb": 150,
     "ports": ["22/tcp"],

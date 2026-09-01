@@ -233,7 +233,7 @@ Esses valores e a própria disponibilidade podem mudar. Consultar o catálogo ao
 - O spend limit geral da conta não substitui um limite específico do workload.
 - O network volume gera cobrança enquanto existir, mesmo sem Pod. Revisar periodicamente ocupação e necessidade.
 
-O inventário técnico de 2026-08-31 levou à recomendação de um network volume `STANDARD` de 200 GB, estimado em cerca de US$ 14/mês na tarifa de referência de US$ 0,07/GB/mês. **Isso não foi autorizado e não deve ser criado automaticamente.** A recomendação e os cálculos estão em `docs/arquitetura-inicial.md`.
+O inventário técnico de 2026-08-31 levou à recomendação de um network volume `STANDARD` de 200 GB, estimado em cerca de US$ 14/mês na tarifa de referência de US$ 0,07/GB/mês. O usuário autorizou explicitamente esse custo e o volume foi criado e verificado em 2026-09-01. A cobrança persistente fica ativa enquanto o volume existir. A recomendação, os cálculos e o estado provisionado estão em `docs/arquitetura-inicial.md`.
 
 O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias por cena e uma final selecionada de cada. Esse limite ainda precisa de confirmação explícita antes de provisionar recursos.
 
@@ -254,7 +254,7 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - O acesso SSH deve usar chave pública cadastrada na Runpod; nunca armazenar chave privada no repositório, imagem, volume ou chat.
 - ComfyUI e outros serviços internos devem ser acessados por SSH/port forwarding no fluxo padrão. Não expor portas web desnecessárias nem usar uma interface exposta para configuração.
 
-## 10. Estado técnico verificado em 2026-08-31
+## 10. Estado técnico verificado até 2026-09-01
 
 - Sistema local: Windows com PowerShell.
 - Workspace: `C:\Users\Guilherme\dev\freelancers\2025\acao_conecta\bvshop\edição videos big one`.
@@ -281,7 +281,9 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - O perfil local `runpod-s3` foi configurado pelo usuário diretamente no prompt interativo. A validação confirmou apenas os prefixos esperados (`user_...` e `rps_...`) sem exibir valores; `/root/.aws/credentials` e `/root/.aws/config` ficaram com permissão `600`.
 - `scripts/verify_runpod_s3_profile.sh` verifica com segurança a presença, os formatos e as permissões do perfil sem imprimir as credenciais.
 - O arquivo temporário `credentials.txt`, depois de usado pelo usuário para configurar o perfil protegido, foi removido do workspace e enviado à Lixeira do Windows sem que seu conteúdo fosse lido ou exibido.
-- A autenticação contra um bucket ainda não foi testada porque não existe network volume. Fazer o primeiro teste somente depois de escolher o data center e criar o volume com autorização explícita.
+- O network volume `axi-ltx-video-models-v1` (`134w7utxe6`) foi criado com autorização explícita e verificado como `STANDARD`, 200 GB, em `EU-RO-1`. A listagem pela API S3 regional com o perfil local protegido `runpod-s3` foi bem-sucedida; o volume estava vazio e nenhum segredo foi exibido.
+- O template `axi-ltx-video-v0.3.0` (`6213ek6yok`) foi criado e verificado com a imagem pública pelo digest imutável vigente, container disk de 150 GB, montagem em `/workspace`, somente `22/tcp`, sem autenticação de registry e com referência ao secret existente pela variável `HF_TOKEN`. Nenhuma porta HTTP ou de Jupyter foi publicada.
+- Nenhum Pod/GPU foi criado nessa etapa, conforme a proibição explícita do usuário. O primeiro Pod continua dependendo de uma nova autorização de custo.
 - O catálogo Runpod ao vivo confirmou RTX 5090 32 GB a US$ 0,99/h no Secure Cloud e RTX PRO 6000 Blackwell Server Edition 96 GB a US$ 2,09/h no Secure Cloud. As duas suportam CUDA 13.0.
 - `EU-RO-1` foi selecionado como data center recomendado: oferece network volume `STANDARD` e apareceu na disponibilidade das duas GPUs escolhidas. Disponibilidade é dinâmica e deve ser revalidada no provisionamento.
 - A imagem pública `runpod/comfyui:cuda13.0` foi inspecionada e seu índice estava no digest `sha256:094dc6d79448b6f118c4d2b054073f92d765c568598e7a96aaeda678a6bcbf3b`.
@@ -312,8 +314,10 @@ Concluído e versionado:
 - script idempotente para baixar e validar workflows no network volume;
 - CLI local e bootstrap remoto versionados, com `known_hosts` isolado por Pod, auditoria redigida, túnel apenas em localhost, retomada por `job-id`, watchdog e teardown limitado a um ID exato;
 - controlador de criação protegida versionado: exige autorização local de uso único vinculada a custo e recursos, revalida ao vivo preço/estoque da GPU, digest do template e local/tamanho/tier do volume, persiste a intenção, arma um guardião independente antes de criar, usa nome UUID exclusivo, persiste o ID antes da espera SSH e permite ao guardião redescobrir/excluir Pods próprios se o processo principal cair;
-- ambiente local Runpod autenticado, `runpodctl` funcional e perfil S3 configurado sem segredos no repositório;
-- decisão de Secure Cloud, `EU-RO-1`, volume `STANDARD` de 200 GB, RTX 5090 para prévia e RTX PRO 6000 para final, ainda sujeita à revalidação de preço/disponibilidade no provisionamento.
+- ambiente local Runpod autenticado, `runpodctl` funcional e perfil S3 configurado e validado contra o volume real sem segredos no repositório;
+- network volume `axi-ltx-video-models-v1` (`134w7utxe6`) provisionado e verificado como `STANDARD`, 200 GB, em `EU-RO-1`;
+- template `axi-ltx-video-v0.3.0` (`6213ek6yok`) provisionado e verificado com imagem fixada por digest, somente SSH em `22/tcp`, montagem em `/workspace` e secret referenciado sem expor o valor;
+- decisão de Secure Cloud, RTX 5090 para prévia e RTX PRO 6000 para final, ainda sujeita à revalidação de preço e disponibilidade antes de cada Pod.
 
 Ainda não concluído ou não autorizado:
 
@@ -322,9 +326,9 @@ Ainda não concluído ou não autorizado:
 - testar em um Pod real a CLI local e o bootstrap remoto, incluindo host key isolada, túnel, retomada, watchdog e teardown; os testes locais não substituem essa aceitação;
 - confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;
 - comprovar no primeiro bootstrap o download autenticado e o SHA-256 local dos quatro pesos IC-LoRA, embora os acessos gated e os metadados oficiais já estejam confirmados;
-- obter autorização explícita antes de criar o network volume de 200 GB `STANDARD` em `EU-RO-1`, template ou qualquer Pod cobrado;
-- criar template, network volume e primeiro Pod de configuração;
-- carregar os modelos no volume uma única vez e testar autenticação S3 contra o volume real;
+- obter uma nova autorização explícita antes de criar qualquer Pod/GPU; a autorização anterior cobriu somente o volume e o template já provisionados;
+- criar o primeiro Pod de configuração pelo template, com o volume já existente e o watchdog externo armado;
+- carregar os modelos no volume uma única vez; a autenticação S3 contra o volume real já foi comprovada por listagem somente de leitura;
 - executar smoke test, excluir o Pod e repetir em um segundo Pod para provar persistência e idempotência;
 - executar benchmark real da RTX 5090 para prévia e da RTX PRO 6000 para final INT8/BF16;
 - receber classificação de confidencialidade, cenas/referências, duração, proporção, resolução, FPS, áudio e formato final do piloto;
