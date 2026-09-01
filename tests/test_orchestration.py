@@ -3,6 +3,7 @@ from __future__ import annotations
 from argparse import Namespace
 from contextlib import nullcontext
 from contextlib import redirect_stdout
+from datetime import datetime, timedelta, timezone
 import io
 import importlib.util
 import json
@@ -101,6 +102,224 @@ class SshSafetyTests(unittest.TestCase):
                  mock.patch.object(orchestrator, "run_process", side_effect=error):
                 orchestrator.delete_pod("abc123", audit=audit)
             self.assertIn("pod_already_absent", audit.path.read_text(encoding="utf-8"))
+
+
+class GuardedCreationTests(unittest.TestCase):
+    def _approval(self, root: Path, *, deadline: datetime, gpu_id: str = "gpu.fixture") -> Path:
+        path = root / "authorizations" / "approval.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "authorization_id": "approval-fixture",
+                    "authorized": True,
+                    "one_time": True,
+                    "approved_at": datetime.now(timezone.utc).isoformat(),
+                    "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
+                    "constraints": {
+                        "template_id": "template.fixture",
+                        "network_volume_id": "volume.fixture",
+                        "gpu_id": gpu_id,
+                        "data_center_id": "EU-RO-1",
+                        "cloud": "SECURE",
+                        "deadline": deadline.isoformat(),
+                        "max_hourly_usd": 1.25,
+                        "max_total_usd": 5.0,
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    def _args(self, approval: Path, deadline: datetime) -> Namespace:
+        return Namespace(
+            template_id="template.fixture",
+            network_volume_id="volume.fixture",
+            gpu_id="gpu.fixture",
+            data_center_id="EU-RO-1",
+            deadline=deadline.isoformat(),
+            hourly_usd=0.99,
+            authorization_file=str(approval),
+            create_timeout=30,
+            ssh_timeout=30,
+        )
+
+    def test_refuses_mismatched_authorization_before_guardian_or_create(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / ".runpod"
+            deadline = datetime.now(timezone.utc) + timedelta(minutes=30)
+            approval = self._approval(state_root, deadline=deadline, gpu_id="other.gpu")
+            with mock.patch.object(orchestrator, "STATE_ROOT", state_root), \
+                 mock.patch.object(orchestrator, "start_guardian") as start_guardian, \
+                 mock.patch.object(orchestrator, "run_json") as run_json:
+                with self.assertRaisesRegex(orchestrator.OrchestrationError, "mismatch: gpu_id"):
+                    orchestrator.command_guarded_create(self._args(approval, deadline))
+            start_guardian.assert_not_called()
+            run_json.assert_not_called()
+
+    def test_guardian_is_ready_before_create_and_id_is_persisted_before_ssh(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / ".runpod"
+            deadline = datetime.now(timezone.utc) + timedelta(minutes=30)
+            approval = self._approval(state_root, deadline=deadline)
+            events = []
+
+            def fake_start(intent_path):
+                self.assertEqual(orchestrator.read_json_object(intent_path, "intent")["status"], "arming")
+                events.append("guardian_started")
+                return 4321
+
+            def fake_guard_ready(intent_path, pid):
+                self.assertEqual(pid, 4321)
+                orchestrator.touch_session(intent_path, guardian_pid=pid,
+                                           guardian_ready_at=orchestrator.utc_now())
+                events.append("guardian_ready")
+
+            def fake_run_json(command, **_kwargs):
+                self.assertIn("pod", command)
+                self.assertIn("create", command)
+                events.append("create")
+                return {"id": "pod123"}
+
+            def fake_wait(_pod, _timeout, heartbeat=None):
+                intent = next((state_root / "sessions").glob("*.json"))
+                state = orchestrator.read_json_object(intent, "intent")
+                self.assertEqual(state["status"], "waiting_ssh")
+                self.assertEqual(state["pod_ids"], ["pod123"])
+                self.assertIsNotNone(heartbeat)
+                heartbeat()
+                events.append("ssh_wait")
+                return object()
+
+            with mock.patch.object(orchestrator, "STATE_ROOT", state_root), \
+                 mock.patch.object(orchestrator, "start_guardian", side_effect=fake_start), \
+                 mock.patch.object(orchestrator, "wait_guardian_ready", side_effect=fake_guard_ready), \
+                 mock.patch.object(orchestrator, "find_runpodctl", return_value="runpodctl"), \
+                 mock.patch.object(orchestrator, "live_resource_preflight", return_value={
+                     "template_id": "template.fixture", "network_volume_id": "volume.fixture",
+                 }), \
+                 mock.patch.object(orchestrator, "live_gpu_preflight", return_value={
+                     "gpu_id": "gpu.fixture", "data_center_id": "EU-RO-1",
+                     "secure_hourly_usd": 0.99, "stock_status": "Low",
+                 }), \
+                 mock.patch.object(orchestrator, "find_executable", return_value="fixture"), \
+                 mock.patch.object(orchestrator, "run_json", side_effect=fake_run_json), \
+                 mock.patch.object(orchestrator, "wait_for_ssh", side_effect=fake_wait), \
+                 redirect_stdout(io.StringIO()):
+                result = orchestrator.command_guarded_create(self._args(approval, deadline))
+
+            self.assertEqual(result, 0)
+            self.assertLess(events.index("guardian_ready"), events.index("create"))
+            self.assertLess(events.index("create"), events.index("ssh_wait"))
+            state = orchestrator.read_json_object(
+                next((state_root / "sessions").glob("*.json")), "intent"
+            )
+            self.assertEqual(state["status"], "ssh_ready")
+            consumed = orchestrator.read_json_object(approval, "approval")
+            self.assertEqual(consumed["consumed_by_session"], state["session_id"])
+
+    def test_guardian_discovers_and_deletes_owned_pod_after_parent_lease_expires(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / ".runpod"
+            session_id = "a" * 32
+            intent = state_root / "sessions" / f"{session_id}.json"
+            orchestrator.write_json_atomic(
+                intent,
+                {
+                    "schema_version": 1,
+                    "session_id": session_id,
+                    "name": f"axi-ltx-{session_id}",
+                    "status": "creating",
+                    "deadline": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
+                    "parent_heartbeat_at": (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat(),
+                    "pod_ids": [],
+                },
+            )
+            args = Namespace(intent_file=str(intent), poll_seconds=1, parent_lease_seconds=30)
+            with mock.patch.object(orchestrator, "STATE_ROOT", state_root), \
+                 mock.patch.object(orchestrator, "find_runpodctl", return_value="runpodctl"), \
+                 mock.patch.object(orchestrator, "discover_owned_pod_ids", return_value=["pod123"]), \
+                 mock.patch.object(orchestrator, "delete_pod") as delete:
+                result = orchestrator.command_guard_intent(args)
+            self.assertEqual(result, 0)
+            delete.assert_called_once_with("pod123", audit=mock.ANY)
+            state = orchestrator.read_json_object(intent, "intent")
+            self.assertEqual(state["status"], "clean")
+            self.assertEqual(state["deleted_pod_ids"], ["pod123"])
+
+    def test_create_command_has_ssh_but_does_not_wait_inside_runpodctl(self):
+        deadline = datetime.now(timezone.utc) + timedelta(minutes=30)
+        args = self._args(Path("approval.json"), deadline)
+        command = orchestrator.build_pod_create_args(args, "axi-ltx-" + "b" * 32, "runpodctl")
+        self.assertIn("--ssh", command)
+        self.assertIn("22/tcp", command)
+        self.assertNotIn("--wait", command)
+        self.assertEqual(command[command.index("--cloud-type") + 1], "SECURE")
+
+    def test_live_gpu_preflight_checks_price_and_data_center_stock(self):
+        payload = [
+            {
+                "gpuId": "NVIDIA GeForce RTX 5090",
+                "secureCloud": True,
+                "securePricePerHr": 0.99,
+                "dataCenterAvailability": [
+                    {"dataCenterId": "EU-RO-1", "stockStatus": "Low"}
+                ],
+            }
+        ]
+        with mock.patch.object(orchestrator, "run_json", return_value=payload):
+            snapshot = orchestrator.live_gpu_preflight(
+                "NVIDIA GeForce RTX 5090", "EU-RO-1", 0.99,
+                runpodctl="runpodctl", audit=mock.Mock(),
+            )
+            self.assertEqual(snapshot["stock_status"], "Low")
+            with self.assertRaisesRegex(orchestrator.OrchestrationError, "price changed"):
+                orchestrator.live_gpu_preflight(
+                    "NVIDIA GeForce RTX 5090", "EU-RO-1", 0.98,
+                    runpodctl="runpodctl", audit=mock.Mock(),
+                )
+
+    def test_live_resource_preflight_pins_image_volume_location_and_size(self):
+        stack = json.loads((ROOT / "config" / "stack.json").read_text(encoding="utf-8"))
+        responses = [
+            {
+                "id": "template.fixture",
+                "imageName": stack["image"]["published"],
+                "containerDiskInGb": 150,
+            },
+            {
+                "id": "volume.fixture",
+                "dataCenterId": "EU-RO-1",
+                "size": 200,
+                "type": "STANDARD",
+            },
+        ]
+        with mock.patch.object(orchestrator, "run_json", side_effect=responses):
+            snapshot = orchestrator.live_resource_preflight(
+                "template.fixture", "volume.fixture", "EU-RO-1",
+                runpodctl="runpodctl", audit=mock.Mock(),
+            )
+        self.assertEqual(snapshot["image"], stack["image"]["published"])
+        self.assertEqual(snapshot["volume_data_center_id"], "EU-RO-1")
+        self.assertEqual(snapshot["volume_size_gb"], 200)
+
+    def test_deadline_cannot_exceed_approved_total_cost(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state_root = Path(directory) / ".runpod"
+            deadline = datetime.now(timezone.utc) + timedelta(hours=10)
+            approval = self._approval(state_root, deadline=deadline)
+            with mock.patch.object(orchestrator, "STATE_ROOT", state_root), \
+                 mock.patch.object(orchestrator, "start_guardian") as start_guardian:
+                with self.assertRaisesRegex(orchestrator.OrchestrationError, "total cost ceiling"):
+                    orchestrator.command_guarded_create(self._args(approval, deadline))
+            start_guardian.assert_not_called()
+
+    def test_create_payload_must_resolve_to_at_most_one_id(self):
+        self.assertEqual(orchestrator.pod_id_from_create({"pod": {"id": "pod123"}}), "pod123")
+        with self.assertRaises(orchestrator.OrchestrationError):
+            orchestrator.pod_id_from_create({"pods": [{"id": "pod123"}, {"id": "pod456"}]})
 
 
 class BootstrapTests(unittest.TestCase):

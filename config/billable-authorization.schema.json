@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BoaVistaBVShop/axi-ltx-video/config/billable-authorization.schema.json",
+  "title": "One-time Runpod billable authorization",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "authorization_id",
+    "authorized",
+    "one_time",
+    "approved_at",
+    "expires_at",
+    "constraints"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "authorization_id": { "type": "string", "minLength": 1 },
+    "authorized": { "const": true },
+    "one_time": { "const": true },
+    "approved_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "consumed_at": { "type": "string", "format": "date-time" },
+    "consumed_by_session": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template_id",
+        "network_volume_id",
+        "gpu_id",
+        "data_center_id",
+        "cloud",
+        "deadline",
+        "max_hourly_usd",
+        "max_total_usd"
+      ],
+      "properties": {
+        "template_id": { "type": "string", "minLength": 3 },
+        "network_volume_id": { "type": "string", "minLength": 3 },
+        "gpu_id": { "type": "string", "minLength": 3 },
+        "data_center_id": { "type": "string", "minLength": 3 },
+        "cloud": { "const": "SECURE" },
+        "deadline": { "type": "string", "format": "date-time" },
+        "max_hourly_usd": { "type": "number", "exclusiveMinimum": 0 },
+        "max_total_usd": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    }
+  }
+}

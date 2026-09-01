@@ -16,7 +16,7 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Iterator
+from typing import Callable, Iterator
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 import uuid
@@ -30,6 +30,9 @@ PROFILE_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 SAFE_HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$")
 SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$")
 SAFE_REMOTE_PATH_RE = re.compile(r"^/workspace/[A-Za-z0-9._/-]{1,1000}$")
+RESOURCE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,255}$")
+GPU_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._():+/-]{2,255}$")
+SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 REDACT_KEYS = {"token", "password", "secret", "authorization", "hf_token", "runpod_api_key"}
 
 
@@ -358,10 +361,16 @@ def http_json(method: str, url: str, payload: dict | None = None, timeout: float
         raise OrchestrationError(f"ComfyUI request failed: {type(exc).__name__}") from exc
 
 
-def wait_for_ssh(pod: PodSsh, timeout_seconds: int) -> SshInfo:
+def wait_for_ssh(
+    pod: PodSsh,
+    timeout_seconds: int,
+    heartbeat: Callable[[], None] | None = None,
+) -> SshInfo:
     deadline = time.monotonic() + timeout_seconds
     last_error: Exception | None = None
     while time.monotonic() < deadline:
+        if heartbeat:
+            heartbeat()
         try:
             info = pod.resolve()
             pod.run(
@@ -374,6 +383,8 @@ def wait_for_ssh(pod: PodSsh, timeout_seconds: int) -> SshInfo:
             return info
         except (OrchestrationError, subprocess.TimeoutExpired) as exc:
             last_error = exc
+            if heartbeat:
+                heartbeat()
             time.sleep(5)
     raise OrchestrationError(f"SSH readiness timed out: {last_error}")
 
@@ -562,6 +573,573 @@ def delete_pod(pod_id: str, *, audit: AuditLog, retries: int = 5) -> None:
     raise OrchestrationError(f"failed to delete pod after {retries} attempts: {last_error}")
 
 
+def validate_resource_id(value: str, label: str) -> str:
+    if not RESOURCE_ID_RE.fullmatch(value):
+        raise OrchestrationError(f"invalid {label}")
+    return value
+
+
+def validate_gpu_id(value: str) -> str:
+    if not GPU_ID_RE.fullmatch(value):
+        raise OrchestrationError("invalid gpu id")
+    return value
+
+
+def validate_session_id(value: str) -> str:
+    if not SESSION_ID_RE.fullmatch(value):
+        raise OrchestrationError("invalid session id")
+    return value
+
+
+def read_json_object(path: Path, label: str) -> dict:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise OrchestrationError(f"could not read {label}: {path}") from exc
+    if not isinstance(payload, dict):
+        raise OrchestrationError(f"{label} must contain a JSON object")
+    return payload
+
+
+@contextmanager
+def file_lock(path: Path, timeout_seconds: float = 10) -> Iterator[None]:
+    """Use an OS-released advisory lock so a crashed process cannot strand the guardian."""
+    lock_path = path.with_name(path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout_seconds
+    with lock_path.open("a+b") as handle:
+        if handle.tell() == 0:
+            handle.write(b"\0")
+            handle.flush()
+        while True:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise OrchestrationError(f"timed out waiting for state lock: {path.name}")
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def update_json_locked(path: Path, mutator: Callable[[dict], None]) -> dict:
+    with file_lock(path):
+        state = read_json_object(path, "state")
+        mutator(state)
+        write_json_atomic(path, state)
+        return state
+
+
+def resolve_state_file(value: str, category: str) -> Path:
+    root = (STATE_ROOT / category).resolve()
+    path = Path(value).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise OrchestrationError(f"file must be below {root}") from exc
+    if path.suffix.lower() != ".json":
+        raise OrchestrationError("state file must use the .json extension")
+    return path
+
+
+def authorization_constraints(
+    path: Path,
+    *,
+    template_id: str,
+    network_volume_id: str,
+    gpu_id: str,
+    data_center_id: str,
+    deadline: datetime,
+    hourly_usd: float,
+) -> dict:
+    authorization = read_json_object(path, "billable authorization")
+    if authorization.get("schema_version") != 1 or authorization.get("authorized") is not True:
+        raise OrchestrationError("billable authorization is not an approved schema-v1 record")
+    if authorization.get("one_time") is not True:
+        raise OrchestrationError("billable authorization must be one-time")
+    if authorization.get("consumed_at") or authorization.get("consumed_by_session"):
+        raise OrchestrationError("billable authorization has already been consumed")
+    expires_at = parse_deadline(str(authorization.get("expires_at", "")))
+    if expires_at <= datetime.now(timezone.utc):
+        raise OrchestrationError("billable authorization has expired")
+    constraints = authorization.get("constraints")
+    if not isinstance(constraints, dict):
+        raise OrchestrationError("billable authorization has no constraints object")
+    expected = {
+        "template_id": template_id,
+        "network_volume_id": network_volume_id,
+        "gpu_id": gpu_id,
+        "data_center_id": data_center_id,
+        "cloud": "SECURE",
+    }
+    for key, value in expected.items():
+        if constraints.get(key) != value:
+            raise OrchestrationError(f"billable authorization mismatch: {key}")
+    approved_deadline = parse_deadline(str(constraints.get("deadline", "")))
+    if deadline != approved_deadline:
+        raise OrchestrationError("billable authorization mismatch: deadline")
+    try:
+        max_hourly = float(constraints["max_hourly_usd"])
+        max_total = float(constraints["max_total_usd"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OrchestrationError("billable authorization has invalid cost limits") from exc
+    if max_hourly <= 0 or max_total <= 0 or hourly_usd <= 0:
+        raise OrchestrationError("billable cost limits must be positive")
+    if hourly_usd > max_hourly:
+        raise OrchestrationError("requested hourly price exceeds the approved ceiling")
+    projected_ceiling = hourly_usd * max(
+        0.0, (deadline - datetime.now(timezone.utc)).total_seconds() / 3600
+    )
+    if projected_ceiling > max_total:
+        raise OrchestrationError("deadline would exceed the approved total cost ceiling")
+    return authorization
+
+
+def consume_authorization(path: Path, session_id: str, expected: dict) -> None:
+    def mutate(authorization: dict) -> None:
+        if authorization != expected:
+            raise OrchestrationError("billable authorization changed after validation")
+        if authorization.get("consumed_at") or authorization.get("consumed_by_session"):
+            raise OrchestrationError("billable authorization was consumed concurrently")
+        authorization["consumed_at"] = utc_now()
+        authorization["consumed_by_session"] = session_id
+
+    update_json_locked(path, mutate)
+
+
+def iter_pod_records(payload) -> Iterator[dict]:
+    if isinstance(payload, list):
+        for item in payload:
+            yield from iter_pod_records(item)
+    elif isinstance(payload, dict):
+        if any(key in payload for key in ("id", "podId", "pod_id")):
+            yield payload
+        for key in ("pod", "pods", "items", "data", "results"):
+            if key in payload:
+                yield from iter_pod_records(payload[key])
+
+
+def record_pod_id(record: dict) -> str | None:
+    value = record.get("id") or record.get("podId") or record.get("pod_id")
+    if isinstance(value, str) and POD_ID_RE.fullmatch(value):
+        return value
+    return None
+
+
+def pod_id_from_create(payload: dict) -> str | None:
+    ids = {pod_id for record in iter_pod_records(payload) if (pod_id := record_pod_id(record))}
+    if len(ids) > 1:
+        raise OrchestrationError("pod create returned more than one pod id")
+    return next(iter(ids), None)
+
+
+def discover_owned_pod_ids(name: str, *, runpodctl: str, audit: AuditLog) -> list[str]:
+    payload = run_json(
+        [runpodctl, "pod", "list", "--all", "--name", name],
+        action="guard_discover_pods",
+        audit=audit,
+        timeout=30,
+    )
+    owned: set[str] = set()
+    for record in iter_pod_records(payload):
+        if record.get("name") == name:
+            pod_id = record_pod_id(record)
+            if pod_id:
+                owned.add(pod_id)
+    return sorted(owned)
+
+
+def live_gpu_preflight(
+    gpu_id: str,
+    data_center_id: str,
+    expected_hourly_usd: float,
+    *,
+    runpodctl: str,
+    audit: AuditLog,
+) -> dict:
+    payload = run_json(
+        [runpodctl, "gpu", "list", "--include-unavailable"],
+        action="live_gpu_preflight",
+        audit=audit,
+        timeout=60,
+    )
+    records = payload if isinstance(payload, list) else payload.get("gpus", payload.get("data", []))
+    if not isinstance(records, list):
+        raise OrchestrationError("live GPU catalog returned an unexpected shape")
+    matches = [record for record in records if isinstance(record, dict)
+               and (record.get("gpuId") or record.get("id")) == gpu_id]
+    if len(matches) != 1:
+        raise OrchestrationError("approved GPU was not uniquely found in the live catalog")
+    gpu = matches[0]
+    if gpu.get("secureCloud") is not True:
+        raise OrchestrationError("approved GPU is not available in Secure Cloud")
+    try:
+        live_price = float(gpu["securePricePerHr"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OrchestrationError("live Secure Cloud GPU price is unavailable") from exc
+    if abs(live_price - expected_hourly_usd) > 0.0001:
+        raise OrchestrationError(
+            f"live hourly price changed to US$ {live_price:.4f}; new approval is required"
+        )
+    availability = gpu.get("dataCenterAvailability")
+    if not isinstance(availability, list):
+        raise OrchestrationError("live GPU catalog has no data-center availability")
+    locations = [item for item in availability if isinstance(item, dict)
+                 and item.get("dataCenterId") == data_center_id]
+    if len(locations) != 1 or str(locations[0].get("stockStatus", "")).lower() == "none":
+        raise OrchestrationError("approved GPU currently has no stock in the volume data center")
+    return {"gpu_id": gpu_id, "data_center_id": data_center_id,
+            "secure_hourly_usd": live_price, "stock_status": locations[0].get("stockStatus")}
+
+
+def unwrap_record(payload, keys: tuple[str, ...], label: str) -> dict:
+    record = payload
+    if isinstance(record, dict):
+        for key in keys:
+            if isinstance(record.get(key), dict):
+                record = record[key]
+                break
+    if not isinstance(record, dict):
+        raise OrchestrationError(f"live {label} returned an unexpected shape")
+    return record
+
+
+def live_resource_preflight(
+    template_id: str,
+    network_volume_id: str,
+    data_center_id: str,
+    *,
+    runpodctl: str,
+    audit: AuditLog,
+) -> dict:
+    stack = read_json_object(PROJECT_ROOT / "config" / "stack.json", "stack config")
+    template = unwrap_record(
+        run_json([runpodctl, "template", "get", template_id],
+                 action="live_template_preflight", audit=audit, timeout=30),
+        ("template", "data"),
+        "template",
+    )
+    returned_template_id = template.get("id") or template.get("templateId")
+    if returned_template_id != template_id:
+        raise OrchestrationError("live template id does not match the approved template")
+    image = template.get("imageName") or template.get("image") or template.get("containerImage")
+    pinned_image = stack["image"]["published"]
+    if image != pinned_image:
+        raise OrchestrationError("live template is not pinned to the approved image digest")
+    disk = template.get("containerDiskInGb", template.get("containerDiskGb"))
+    try:
+        disk_gb = int(disk)
+    except (TypeError, ValueError) as exc:
+        raise OrchestrationError("live template did not report container disk size") from exc
+    minimum_disk = int(stack["runpod"]["container_disk_gb"])
+    if disk_gb < minimum_disk:
+        raise OrchestrationError("live template container disk is below the pinned minimum")
+
+    volume = unwrap_record(
+        run_json([runpodctl, "network-volume", "get", network_volume_id],
+                 action="live_volume_preflight", audit=audit, timeout=30),
+        ("networkVolume", "volume", "data"),
+        "network volume",
+    )
+    returned_volume_id = volume.get("id") or volume.get("networkVolumeId")
+    if returned_volume_id != network_volume_id:
+        raise OrchestrationError("live network volume id does not match the approved volume")
+    volume_dc = volume.get("dataCenterId") or volume.get("data_center_id")
+    if volume_dc != data_center_id:
+        raise OrchestrationError("network volume is not in the approved data center")
+    try:
+        size_gb = int(volume.get("size", volume.get("sizeInGb")))
+    except (TypeError, ValueError) as exc:
+        raise OrchestrationError("live network volume did not report its size") from exc
+    minimum_size = int(stack["runpod"]["network_volume"]["size_gb"])
+    if size_gb < minimum_size:
+        raise OrchestrationError("live network volume is smaller than the pinned minimum")
+    volume_type = volume.get("type") or volume.get("volumeType")
+    expected_type = stack["runpod"]["network_volume"]["type"]
+    if volume_type is not None and str(volume_type).upper() != expected_type:
+        raise OrchestrationError("live network volume storage tier does not match the pinned stack")
+    return {
+        "template_id": template_id,
+        "image": image,
+        "container_disk_gb": disk_gb,
+        "network_volume_id": network_volume_id,
+        "volume_data_center_id": volume_dc,
+        "volume_size_gb": size_gb,
+        "volume_type": str(volume_type).upper() if volume_type is not None else "UNREPORTED",
+    }
+
+
+def session_path(session_id: str) -> Path:
+    return STATE_ROOT / "sessions" / f"{validate_session_id(session_id)}.json"
+
+
+def touch_session(path: Path, **fields) -> dict:
+    def mutate(state: dict) -> None:
+        state.update(fields)
+
+    return update_json_locked(path, mutate)
+
+
+def start_guardian(intent_path: Path) -> int:
+    log_path = STATE_ROOT / "guards" / f"{intent_path.stem}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [sys.executable, str(Path(__file__).resolve()), "guard-intent",
+               "--intent-file", str(intent_path)]
+    creationflags = 0
+    start_new_session = os.name != "nt"
+    if os.name == "nt":
+        creationflags = (
+            getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            | getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
+    with log_path.open("ab") as log_handle:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=log_handle,
+            stderr=log_handle,
+            close_fds=True,
+            start_new_session=start_new_session,
+            creationflags=creationflags,
+        )
+    return process.pid
+
+
+def wait_guardian_ready(intent_path: Path, pid: int, timeout_seconds: int = 15) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        state = read_json_object(intent_path, "creation intent")
+        if state.get("guardian_pid") == pid and state.get("guardian_ready_at"):
+            return
+        time.sleep(0.1)
+    raise OrchestrationError("guardian did not acknowledge readiness; pod creation refused")
+
+
+def build_pod_create_args(args: argparse.Namespace, name: str, runpodctl: str) -> list[str]:
+    return [
+        runpodctl, "pod", "create",
+        "--name", name,
+        "--template-id", args.template_id,
+        "--gpu-id", args.gpu_id,
+        "--gpu-count", "1",
+        "--cloud-type", "SECURE",
+        "--data-center-ids", args.data_center_id,
+        "--network-volume-id", args.network_volume_id,
+        "--volume-mount-path", "/workspace",
+        "--ports", "22/tcp",
+        "--ssh",
+    ]
+
+
+def command_guarded_create(args: argparse.Namespace) -> int:
+    template_id = validate_resource_id(args.template_id, "template id")
+    volume_id = validate_resource_id(args.network_volume_id, "network volume id")
+    gpu_id = validate_gpu_id(args.gpu_id)
+    data_center = validate_resource_id(args.data_center_id, "data center id")
+    deadline = parse_deadline(args.deadline)
+    if deadline <= datetime.now(timezone.utc):
+        raise OrchestrationError("deadline must be in the future")
+    if args.ssh_timeout < 1 or args.create_timeout < 1:
+        raise OrchestrationError("timeouts must be positive")
+    authorization_path = resolve_state_file(args.authorization_file, "authorizations")
+    if not authorization_path.is_file():
+        raise OrchestrationError(f"billable authorization not found: {authorization_path}")
+    authorization = authorization_constraints(
+        authorization_path,
+        template_id=template_id,
+        network_volume_id=volume_id,
+        gpu_id=gpu_id,
+        data_center_id=data_center,
+        deadline=deadline,
+        hourly_usd=args.hourly_usd,
+    )
+
+    session_id = uuid.uuid4().hex
+    name = f"axi-ltx-{session_id}"
+    intent_path = session_path(session_id)
+    audit = AuditLog(f"session-{session_id}")
+    runpodctl = find_runpodctl()
+    live_resources = live_resource_preflight(
+        template_id,
+        volume_id,
+        data_center,
+        runpodctl=runpodctl,
+        audit=audit,
+    )
+    live_snapshot = live_gpu_preflight(
+        gpu_id,
+        data_center,
+        args.hourly_usd,
+        runpodctl=runpodctl,
+        audit=audit,
+    )
+    intent = {
+        "schema_version": 1,
+        "session_id": session_id,
+        "name": name,
+        "status": "arming",
+        "created_at": utc_now(),
+        "parent_heartbeat_at": utc_now(),
+        "deadline": deadline.isoformat(),
+        "authorization_file": str(authorization_path),
+        "template_id": template_id,
+        "network_volume_id": volume_id,
+        "gpu_id": gpu_id,
+        "data_center_id": data_center,
+        "cloud": "SECURE",
+        "hourly_usd": args.hourly_usd,
+        "live_gpu_snapshot": live_snapshot,
+        "live_resource_snapshot": live_resources,
+        "live_checked_at": utc_now(),
+        "pod_ids": [],
+    }
+    write_json_atomic(intent_path, intent)
+    audit.emit("creation_intent_persisted", session_id=session_id, name=name,
+               deadline=deadline.isoformat())
+    try:
+        guardian_pid = start_guardian(intent_path)
+        touch_session(intent_path, guardian_pid=guardian_pid)
+        wait_guardian_ready(intent_path, guardian_pid)
+        consume_authorization(authorization_path, session_id, authorization)
+    except (OrchestrationError, OSError, subprocess.SubprocessError):
+        touch_session(intent_path, status="completed", completed_at=utc_now(),
+                      completion_reason="pre_create_failure")
+        raise
+    touch_session(intent_path, status="creating", parent_heartbeat_at=utc_now(),
+                  authorization_consumed_at=utc_now())
+    audit.emit("guardian_armed_before_create", guardian_pid=guardian_pid)
+
+    create_args = build_pod_create_args(args, name, runpodctl)
+    pod_id: str | None = None
+    try:
+        payload = run_json(create_args, action="guarded_pod_create", audit=audit,
+                           timeout=args.create_timeout)
+        pod_id = pod_id_from_create(payload)
+        if not pod_id:
+            discovered = discover_owned_pod_ids(name, runpodctl=runpodctl, audit=audit)
+            if len(discovered) == 1:
+                pod_id = discovered[0]
+            elif len(discovered) > 1:
+                touch_session(intent_path, pod_ids=discovered, status="delete_requested",
+                              delete_reason="duplicate_owned_pods")
+                raise OrchestrationError("creation produced duplicate owned pods; guardian will delete them")
+            else:
+                raise OrchestrationError("pod create returned no id; guardian remains armed for discovery")
+        pod_id = validate_pod_id(pod_id)
+        touch_session(intent_path, pod_ids=[pod_id], status="waiting_ssh",
+                      pod_id_persisted_at=utc_now(), parent_heartbeat_at=utc_now())
+        audit.emit("pod_id_persisted", pod_id=pod_id)
+
+        def heartbeat() -> None:
+            touch_session(intent_path, parent_heartbeat_at=utc_now())
+
+        pod = PodSsh(pod_id)
+        wait_for_ssh(pod, args.ssh_timeout, heartbeat=heartbeat)
+        touch_session(intent_path, status="ssh_ready", ssh_ready_at=utc_now(),
+                      parent_heartbeat_at=utc_now())
+        print(json.dumps({"status": "ssh_ready", "session_id": session_id,
+                          "pod_id": pod_id, "guardian_pid": guardian_pid,
+                          "deadline": deadline.isoformat()}, indent=2))
+        return 0
+    except (OrchestrationError, subprocess.TimeoutExpired) as exc:
+        state = read_json_object(intent_path, "creation intent")
+        known_ids = list(state.get("pod_ids") or [])
+        if pod_id and pod_id not in known_ids:
+            known_ids.append(pod_id)
+        touch_session(intent_path, status="delete_requested", pod_ids=known_ids,
+                      delete_reason=type(exc).__name__, parent_heartbeat_at=utc_now())
+        audit.emit("guarded_create_failed_cleanup_requested", error=type(exc).__name__)
+        for owned_id in known_ids:
+            delete_pod(validate_pod_id(owned_id), audit=audit)
+        raise
+
+
+def command_guard_intent(args: argparse.Namespace) -> int:
+    intent_path = resolve_state_file(args.intent_file, "sessions")
+    state = read_json_object(intent_path, "creation intent")
+    session_id = validate_session_id(str(state.get("session_id", "")))
+    if intent_path != session_path(session_id).resolve():
+        raise OrchestrationError("intent filename does not match its session id")
+    name = str(state.get("name", ""))
+    if name != f"axi-ltx-{session_id}":
+        raise OrchestrationError("intent contains an invalid owned pod name")
+    deadline = parse_deadline(str(state.get("deadline", "")))
+    if args.poll_seconds < 1 or args.parent_lease_seconds < 10:
+        raise OrchestrationError("guardian timing values are invalid")
+    audit = AuditLog(f"session-{session_id}")
+    runpodctl = find_runpodctl()
+    touch_session(intent_path, guardian_pid=os.getpid(), guardian_ready_at=utc_now())
+    audit.emit("intent_guardian_ready", deadline=deadline.isoformat())
+
+    while True:
+        state = read_json_object(intent_path, "creation intent")
+        status = state.get("status")
+        if status in {"completed", "clean"}:
+            audit.emit("intent_guardian_stopped", status=status)
+            return 0
+        owned_ids = {
+            validate_pod_id(value) for value in state.get("pod_ids", [])
+            if isinstance(value, str) and POD_ID_RE.fullmatch(value)
+        }
+        try:
+            discovered = discover_owned_pod_ids(name, runpodctl=runpodctl, audit=audit)
+            newly_found = set(discovered) - owned_ids
+            if newly_found:
+                owned_ids.update(newly_found)
+                touch_session(intent_path, pod_ids=sorted(owned_ids),
+                              guardian_discovered_at=utc_now())
+                audit.emit("guardian_discovered_owned_pods", pod_ids=sorted(newly_found))
+        except (OrchestrationError, subprocess.TimeoutExpired) as exc:
+            audit.emit("guardian_discovery_failed", error=type(exc).__name__)
+
+        now = datetime.now(timezone.utc)
+        if status in {"arming", "creating", "waiting_ssh"}:
+            try:
+                parent_heartbeat = parse_deadline(str(state.get("parent_heartbeat_at", "")))
+            except (OrchestrationError, ValueError):
+                parent_heartbeat = datetime.fromtimestamp(0, timezone.utc)
+            if (now - parent_heartbeat).total_seconds() >= args.parent_lease_seconds:
+                status = "delete_requested"
+                touch_session(intent_path, status=status, delete_reason="parent_lease_expired")
+                audit.emit("guardian_parent_lease_expired")
+        if now >= deadline:
+            status = "delete_requested"
+            touch_session(intent_path, status=status, delete_reason="deadline")
+
+        if status == "delete_requested" and owned_ids:
+            failures: list[str] = []
+            for pod_id in sorted(owned_ids):
+                try:
+                    delete_pod(pod_id, audit=audit)
+                except OrchestrationError:
+                    failures.append(pod_id)
+            if not failures:
+                touch_session(intent_path, status="clean", deleted_pod_ids=sorted(owned_ids),
+                              cleaned_at=utc_now())
+                audit.emit("guardian_cleanup_completed", pod_ids=sorted(owned_ids))
+                return 0
+        elif status == "delete_requested" and now >= deadline:
+            touch_session(intent_path, status="clean", cleaned_at=utc_now(),
+                          cleanup_note="no owned pod discovered by deadline")
+            return 0
+        remaining = max(1, (deadline - now).total_seconds())
+        time.sleep(max(1, min(args.poll_seconds, remaining)))
+
+
 def command_teardown(args: argparse.Namespace) -> int:
     pod_id = validate_pod_id(args.pod_id)
     if args.confirm_pod_id != pod_id:
@@ -569,13 +1147,26 @@ def command_teardown(args: argparse.Namespace) -> int:
     audit = AuditLog(pod_id)
     audit.emit("teardown_authorized", reason=args.reason)
     delete_pod(pod_id, audit=audit)
+    sessions_root = STATE_ROOT / "sessions"
+    if sessions_root.is_dir():
+        for candidate in sessions_root.glob("*.json"):
+            try:
+                state = read_json_object(candidate, "creation intent")
+            except OrchestrationError:
+                continue
+            if pod_id in state.get("pod_ids", []):
+                touch_session(candidate, status="completed", completed_at=utc_now(),
+                              completion_reason=args.reason)
     print(json.dumps({"status": "delete_requested", "pod_id": pod_id, "reason": args.reason}))
     return 0
 
 
 def parse_deadline(value: str) -> datetime:
     normalized = value.replace("Z", "+00:00")
-    parsed = datetime.fromisoformat(normalized)
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except (TypeError, ValueError) as exc:
+        raise OrchestrationError("deadline must be a valid ISO-8601 timestamp") from exc
     if parsed.tzinfo is None:
         raise OrchestrationError("deadline must include a timezone")
     return parsed.astimezone(timezone.utc)
@@ -636,6 +1227,32 @@ def build_parser() -> argparse.ArgumentParser:
 
     doctor = subparsers.add_parser("doctor", help="validate local tools and pinned config")
     doctor.set_defaults(func=command_doctor)
+
+    guarded_create = subparsers.add_parser(
+        "guarded-create",
+        help="arm an independent guardian before creating one authorized Pod",
+    )
+    guarded_create.add_argument("--template-id", required=True)
+    guarded_create.add_argument("--network-volume-id", required=True)
+    guarded_create.add_argument("--gpu-id", required=True)
+    guarded_create.add_argument("--data-center-id", required=True)
+    guarded_create.add_argument("--deadline", required=True,
+                                help="exact approved ISO-8601 timestamp with timezone")
+    guarded_create.add_argument("--hourly-usd", required=True, type=float,
+                                help="live hourly price observed immediately before creation")
+    guarded_create.add_argument("--authorization-file", required=True,
+                                help="one-time approval JSON below .runpod/authorizations")
+    guarded_create.add_argument("--create-timeout", type=int, default=120)
+    guarded_create.add_argument("--ssh-timeout", type=int, default=900)
+    guarded_create.set_defaults(func=command_guarded_create)
+
+    guard_intent = subparsers.add_parser(
+        "guard-intent", help="internal detached guardian for a persisted creation intent"
+    )
+    guard_intent.add_argument("--intent-file", required=True)
+    guard_intent.add_argument("--poll-seconds", type=int, default=15)
+    guard_intent.add_argument("--parent-lease-seconds", type=int, default=180)
+    guard_intent.set_defaults(func=command_guard_intent)
 
     readiness = subparsers.add_parser("readiness", help="prove SSH and ComfyUI through a tunnel")
     readiness.add_argument("--pod-id", required=True)

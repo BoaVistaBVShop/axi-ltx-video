@@ -19,6 +19,10 @@ somente em `127.0.0.1` por port forwarding.
 - bootstrap protegido por lock e marcador atômico escrito somente depois de
   downloads, checksums e health check passarem;
 - teardown exige repetir exatamente o ID do Pod;
+- criação protegida persiste uma intenção, inicia um guardião independente e
+  exige o reconhecimento desse guardião antes de chamar `pod create`;
+- o guardião encontra o Pod pelo nome aleatório exclusivo mesmo se o processo
+  principal morrer antes de receber/persistir o ID;
 - watchdog sempre tenta excluir o Pod no deadline, no timeout de inatividade ou
   quando seu processo é interrompido.
 
@@ -40,6 +44,17 @@ Os exemplos abaixo só devem ser usados depois que volume, template, Pod, custo 
 deadline tiverem sido aprovados.
 
 ```powershell
+# Criar somente depois de registrar a aprovação explícita, de uso único, em
+# .runpod/authorizations/<id>.json conforme config/billable-authorization.schema.json
+./scripts/local/axi-ltx.ps1 guarded-create `
+  --template-id TEMPLATE_ID `
+  --network-volume-id NETWORK_VOLUME_ID `
+  --gpu-id "NVIDIA GeForce RTX 5090" `
+  --data-center-id EU-RO-1 `
+  --hourly-usd 0.99 `
+  --deadline 2026-09-01T23:00:00-03:00 `
+  --authorization-file .runpod/authorizations/PILOTO.json
+
 # Provar SSH real e a API interna do ComfyUI por túnel efêmero
 .\scripts\local\axi-ltx.ps1 readiness --pod-id POD_ID
 
@@ -67,11 +82,26 @@ deadline tiverem sido aprovados.
   --confirm-pod-id POD_ID --reason job-complete
 ```
 
-O watchdog deve rodar em processo/terminal independente do processo de geração.
-Quando o controlador de criação for adicionado, ele deverá iniciar o watchdog
-antes da chamada de criação, persistir o ID retornado imediatamente e repassá-lo
-ao guardião. Até esse controlador existir e ser testado, não provisionar o
-primeiro Pod.
+`guarded-create` é o único caminho autorizado para criar Pods deste projeto. O
+arquivo de autorização é local, ignorado pelo Git, não contém segredo e precisa
+vincular exatamente template, volume, GPU, data center, Secure Cloud, preço
+horário máximo, custo total máximo e deadline. Ele é marcado como consumido
+antes da criação e não pode ser reutilizado.
+
+Antes de armar o guardião, o controlador faz uma preflight somente de leitura:
+confirma no catálogo ao vivo o preço Secure e o estoque da GPU no data center,
+confere que o template ainda aponta para o digest fixado e valida ID, local,
+tamanho mínimo e tier informado do network volume. Mudança de preço ou artefato
+interrompe o fluxo antes de qualquer criação e exige uma nova aprovação.
+
+O controlador não usa `runpodctl pod create --wait`: ele precisa receber e
+persistir o ID o mais cedo possível. Depois disso, a espera de SSH ocorre em uma
+etapa separada, enquanto o controlador renova seu heartbeat. Se o ID não voltar,
+o guardião consulta `pod list --all --name <nome-único>` e assume somente os Pods
+que tenham exatamente aquele nome. Duplicatas sob o mesmo nome de posse são
+tratadas como falha e todas são excluídas. O guardião permanece ativo após a
+prontidão SSH e exclui o Pod no deadline; o `teardown` normal encerra a sessão e
+faz o guardião sair.
 
 ## Bootstrap e segredos
 

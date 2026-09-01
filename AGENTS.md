@@ -311,12 +311,13 @@ Concluído e versionado:
 - scripts no Pod para download/validação idempotente de modelos e publicação atômica de outputs em `ready`;
 - script idempotente para baixar e validar workflows no network volume;
 - CLI local e bootstrap remoto versionados, com `known_hosts` isolado por Pod, auditoria redigida, túnel apenas em localhost, retomada por `job-id`, watchdog e teardown limitado a um ID exato;
+- controlador de criação protegida versionado: exige autorização local de uso único vinculada a custo e recursos, revalida ao vivo preço/estoque da GPU, digest do template e local/tamanho/tier do volume, persiste a intenção, arma um guardião independente antes de criar, usa nome UUID exclusivo, persiste o ID antes da espera SSH e permite ao guardião redescobrir/excluir Pods próprios se o processo principal cair;
 - ambiente local Runpod autenticado, `runpodctl` funcional e perfil S3 configurado sem segredos no repositório;
 - decisão de Secure Cloud, `EU-RO-1`, volume `STANDARD` de 200 GB, RTX 5090 para prévia e RTX PRO 6000 para final, ainda sujeita à revalidação de preço/disponibilidade no provisionamento.
 
 Ainda não concluído ou não autorizado:
 
-- implementar e testar o controlador de criação protegida que inicia um watchdog externo antes de chamar a criação do Pod, persiste imediatamente o ID retornado e entrega esse ID ao guardião; o watchdog por `pod-id` já existe, mas o primeiro provisionamento não pode ocorrer até esse encadeamento eliminar a janela de Pod órfão;
+- validar o controlador de criação protegida em um Pod real; os testes locais provam a ordem guardião → criação → persistência do ID → espera SSH e a recuperação por nome exclusivo, mas a aceitação em infraestrutura continua pendente;
 - testar a conexão SSH real no primeiro Pod e o port forwarding local para a API interna do ComfyUI; SSH é condição de continuidade, não etapa opcional;
 - testar em um Pod real a CLI local e o bootstrap remoto, incluindo host key isolada, túnel, retomada, watchdog e teardown; os testes locais não substituem essa aceitação;
 - confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;
