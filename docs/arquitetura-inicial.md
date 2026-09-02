@@ -9,7 +9,7 @@ Com autorização explícita do usuário, foram criados e verificados somente os
 | Recurso | Estado verificado em 2026-09-01 |
 |---|---|
 | Network volume | `axi-ltx-video-models-v1` (`134w7utxe6`), `STANDARD`, 200 GB, `EU-RO-1` |
-| Template | `axi-ltx-video-v0.4.0` (`6213ek6yok`), imagem `v0.4.0` pelo digest imutável, container disk de 150 GB, somente `22/tcp`, montagem em `/workspace` |
+| Template | `axi-ltx-video-v0.5.0` (`6213ek6yok`), imagem `v0.5.0` pelo digest imutável, container disk de 150 GB, somente `22/tcp`, montagem em `/workspace` |
 
 O template referencia o secret Runpod existente apenas pela variável `HF_TOKEN`; nenhum valor secreto foi registrado. A imagem é pública e o template não usa autenticação de registry. A listagem do volume pela API S3 de `EU-RO-1` também foi validada com o perfil local protegido `runpod-s3`; o volume estava vazio, como esperado.
 
@@ -86,7 +86,7 @@ A tag pública `runpod/comfyui:cuda13.0` será usada apenas como origem. A image
 
 Os pesos não entram na imagem: ficam no network volume. Assim, atualizar a automação não obriga a reenviar mais de 100 GB de modelos ao registry, e recriar um Pod não baixa tudo novamente.
 
-O build em `.github/workflows/build-image.yml` ocorre no GitHub Actions e publica no GitHub Container Registry (GHCR), evitando consumir dezenas de gigabytes no Docker Desktop local. A imagem vigente `v0.4.0` e seu digest imutável estão em `config/stack.json`; o workflow continua manual, com actions fixadas por commit, SBOM e proveniência.
+O build em `.github/workflows/build-image.yml` ocorre no GitHub Actions e publica no GitHub Container Registry (GHCR), evitando consumir dezenas de gigabytes no Docker Desktop local. A imagem vigente `v0.5.0` e seu digest imutável estão em `config/stack.json`; o workflow continua manual, com actions fixadas por commit, SBOM e proveniência.
 
 Por decisão explícita mais recente do usuário, o pacote `axi-ltx-video` é público no GHCR. A política da organização foi atualizada com autorização específica e o acesso anônimo à tag e ao digest vigentes foi validado. O template Runpod poderá obter a imagem sem credencial de registry. Pesos gated, tokens, credenciais S3 e materiais de cliente permanecem fora da imagem.
 
