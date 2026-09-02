@@ -13,6 +13,8 @@ credentials.txt
 .incoming/
 entregas/
 outputs/
+assets/references/
+jobs/
 *.mp4
 *.mov
 *.mkv

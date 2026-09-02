@@ -17,6 +17,8 @@ LABEL org.opencontainers.image.title="bvshop-ltx-video" \
 USER root
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+COPY scripts/pod/repair_ltx_kornia.py /opt/ltx-stack-build/repair_ltx_kornia.py
+
 # Replace the upstream baked ComfyUI bundle while retaining the useful pinned
 # Runpod nodes. Model weights are deliberately excluded from the image.
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -37,6 +39,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
       -o "${build_dir}/ltxvideo.tar.gz"; \
     tar -xzf "${build_dir}/ltxvideo.tar.gz" --strip-components=1 \
       -C "${build_dir}/ComfyUI/custom_nodes/ComfyUI-LTXVideo"; \
+    python3.12 /opt/ltx-stack-build/repair_ltx_kornia.py \
+      --path "${build_dir}/ComfyUI/custom_nodes/ComfyUI-LTXVideo/pyramid_blending.py"; \
     PIP_CONSTRAINT=/opt/comfyui-runtime-constraints.txt \
       python3.12 -m pip install \
       -r "${build_dir}/ComfyUI/requirements.txt" \

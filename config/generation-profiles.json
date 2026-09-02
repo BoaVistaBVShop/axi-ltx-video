@@ -124,6 +124,8 @@
       "model_profile": "baseline-bf16-single-stage",
       "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
       "comparison_only": true,
+      "validation_status": "gpu_smoke_validated",
+      "last_validation_job": "axi360-clip-01-20260901",
       "stage_1": {
         "steps": 8,
         "cfg": 1.0,
@@ -135,7 +137,8 @@
       "model_profile": "lora-ingredients-bf16",
       "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
       "requires_user_confirmation_per_scene": true,
-      "validation_status": "configured_not_gpu_validated",
+      "validation_status": "gpu_smoke_validated",
+      "last_validation_job": "axi360-clip-01-20260901",
       "ab_baseline_profile": "baseline_bf16_single_stage",
       "lora_strength": "pinned_workflow_default",
       "control_input": {
@@ -157,7 +160,8 @@
       "model_profile": "lora-motion-track-bf16",
       "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
       "requires_user_confirmation_per_scene": true,
-      "validation_status": "configured_not_gpu_validated",
+      "validation_status": "gpu_smoke_validated",
+      "last_validation_job": "axi360-clip-01-20260901",
       "ab_baseline_profile": "baseline_bf16_single_stage",
       "lora_strength": "pinned_workflow_default",
       "control_input": {
@@ -176,7 +180,10 @@
       "model_profile": "lora-union-control-bf16",
       "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
       "requires_user_confirmation_per_scene": true,
-      "validation_status": "configured_not_gpu_validated",
+      "validation_status": "gpu_smoke_validated_with_workflow_deviation",
+      "production_ready": false,
+      "last_validation_job": "axi360-clip-01-20260901",
+      "validation_notes": "RGB guide and single-stage smoke only; official depth annotators and stage 2 remain pending",
       "ab_baseline_profile": "final_bf16",
       "lora_strength": "pinned_workflow_default",
       "control_input": {
@@ -202,7 +209,8 @@
       "model_profile": "lora-outpaint-bf16",
       "gpu": "NVIDIA RTX PRO 6000 Blackwell Server Edition",
       "requires_user_confirmation_per_scene": true,
-      "validation_status": "configured_not_gpu_validated",
+      "validation_status": "gpu_smoke_validated",
+      "last_validation_job": "axi360-clip-01-20260901",
       "ab_baseline_profile": "final_bf16",
       "lora_strength": "pinned_workflow_default",
       "control_input": {

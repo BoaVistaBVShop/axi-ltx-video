@@ -46,7 +46,7 @@ O modelo distilled usa uma agenda curta de oito passos e já incorpora guidance 
 
 ### Perfis IC-LoRA
 
-Os quatro perfis estão configurados, mas começam como `configured_not_gpu_validated`:
+O piloto de 2026-09-01 validou em GPU real o baseline BF16, Ingredients, Motion Track e Outpaint. Union Control passou somente por smoke test adaptado com guia RGB e single-stage; o caminho oficial com annotator de depth e segunda etapa continua pendente:
 
 | Perfil | Finalidade | Input obrigatório | Baseline A/B |
 |---|---|---|---|

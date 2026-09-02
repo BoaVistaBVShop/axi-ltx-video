@@ -48,12 +48,17 @@ class ConfigurationTests(unittest.TestCase):
             if name.startswith("lora_")
         }
         self.assertEqual(len(lora_profiles), 4)
+        allowed_validation_states = {
+            "configured_not_gpu_validated",
+            "gpu_smoke_validated",
+            "gpu_smoke_validated_with_workflow_deviation",
+        }
         for name, profile in lora_profiles.items():
             with self.subTest(profile=name):
                 self.assertTrue(profile["requires_user_confirmation_per_scene"])
-                self.assertEqual(
-                    profile["validation_status"], "configured_not_gpu_validated"
-                )
+                self.assertIn(profile["validation_status"], allowed_validation_states)
+                if profile["validation_status"].startswith("gpu_smoke_validated"):
+                    self.assertIn("last_validation_job", profile)
 
     def test_lora_artifacts_are_integrity_pinned(self) -> None:
         loras = [

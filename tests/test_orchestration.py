@@ -48,7 +48,7 @@ class SshSafetyTests(unittest.TestCase):
             args = pod.base_args(info)
             rendered = " ".join(str(item) for item in args)
             self.assertIn("StrictHostKeyChecking=yes", rendered)
-            self.assertIn(f"UserKnownHostsFile={pod.known_hosts}", rendered)
+            self.assertIn(f'UserKnownHostsFile="{pod.known_hosts}"', rendered)
             self.assertNotIn("StrictHostKeyChecking=no", rendered)
             self.assertNotIn("root@203.0.113.10", rendered)
             self.assertEqual(pod.destination(info), "root@203.0.113.10")
@@ -180,6 +180,8 @@ class GuardedCreationTests(unittest.TestCase):
             def fake_run_json(command, **_kwargs):
                 self.assertIn("pod", command)
                 self.assertIn("create", command)
+                disk_flag = command.index("--container-disk-in-gb")
+                self.assertEqual(command[disk_flag + 1], "150")
                 events.append("create")
                 return {"id": "pod123"}
 

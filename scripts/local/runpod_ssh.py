@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -162,6 +163,7 @@ def run_process(
         stderr=subprocess.PIPE if capture else None,
         timeout=timeout,
         check=False,
+        creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
     )
     audit.emit("command_finished", action=action, returncode=result.returncode)
     if result.returncode != 0:
@@ -243,12 +245,24 @@ class PodSsh:
                     "record only after verifying the new endpoint"
                 )
             return
-        result = run_process(
-            [self.ssh_keyscan, "-T", "10", "-p", str(info.port), info.host],
-            action="ssh_keyscan",
-            audit=self.audit,
-            timeout=15,
-        )
+        try:
+            result = run_process(
+                [self.ssh_keyscan, "-T", "10", "-p", str(info.port), info.host],
+                action="ssh_keyscan",
+                audit=self.audit,
+                timeout=15,
+            )
+        except (CommandError, subprocess.TimeoutExpired):
+            if os.name != "nt":
+                raise
+            wsl = find_executable("wsl", "AXI_WSL")
+            result = run_process(
+                [wsl, "-d", "Ubuntu", "--", "ssh-keyscan", "-T", "10", "-p",
+                 str(info.port), info.host],
+                action="ssh_keyscan_wsl_fallback",
+                audit=self.audit,
+                timeout=20,
+            )
         lines = [
             line for line in result.stdout.decode("utf-8", errors="strict").splitlines()
             if line and not line.startswith("#")
@@ -270,7 +284,7 @@ class PodSsh:
             "-o", "BatchMode=yes",
             "-o", "IdentitiesOnly=yes",
             "-o", "StrictHostKeyChecking=yes",
-            "-o", f"UserKnownHostsFile={self.known_hosts}",
+            "-o", f'UserKnownHostsFile="{self.known_hosts}"',
             "-o", "ConnectTimeout=10",
             "-o", "ServerAliveInterval=15",
             "-o", "ServerAliveCountMax=3",
@@ -320,6 +334,7 @@ def ssh_tunnel(pod: PodSsh, info: SshInfo, local_port: int) -> Iterator[int]:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=log_handle,
+            creationflags=(getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0),
         )
         pod.audit.emit("tunnel_started", local_port=local_port, pid=process.pid)
         deadline = time.monotonic() + 15
@@ -475,7 +490,11 @@ def poll_history(base_url: str, prompt_id: str, timeout_seconds: int,
         record = history.get(prompt_id)
         if isinstance(record, dict):
             status = record.get("status", {})
-            if status.get("completed") is True or record.get("outputs"):
+            if status.get("status_str") == "error":
+                state.update({"status": "error", "failed_at": utc_now()})
+                write_json_atomic(state_path, state)
+                raise OrchestrationError(f"generation failed in ComfyUI: {prompt_id}")
+            if status.get("completed") is True:
                 state.update({"status": "completed", "completed_at": utc_now()})
                 write_json_atomic(state_path, state)
                 return record
@@ -539,6 +558,93 @@ def command_finalize(args: argparse.Namespace) -> int:
     )
     result = pod.run(info, command, action="finalize_output", timeout=args.timeout)
     sys.stdout.buffer.write(result.stdout)
+    return 0
+
+
+def command_metrics(args: argparse.Namespace) -> int:
+    """Read a bounded GPU utilization snapshot over SSH without exposing secrets."""
+    pod = PodSsh(args.pod_id)
+    info = wait_for_ssh(pod, args.ssh_timeout)
+    fields = [
+        "timestamp", "name", "utilization.gpu", "utilization.memory",
+        "memory.used", "memory.total", "temperature.gpu", "power.draw", "power.limit",
+    ]
+    command = (
+        "nvidia-smi --query-gpu=" + ",".join(fields)
+        + " --format=csv,noheader,nounits"
+    )
+    result = pod.run(info, command, action="gpu_metrics", timeout=args.timeout)
+    rows = []
+    for line in result.stdout.decode("utf-8", errors="strict").splitlines():
+        values = [value.strip() for value in line.split(",")]
+        if len(values) != len(fields):
+            raise OrchestrationError("nvidia-smi returned an unexpected metrics row")
+        rows.append(dict(zip(fields, values, strict=True)))
+    print(json.dumps({"status": "ok", "gpus": rows}, indent=2))
+    return 0
+
+
+def command_ltx_runtime_check(args: argparse.Namespace) -> int:
+    """Report the pinned LTX node source and its critical Kornia compatibility surface."""
+    pod = PodSsh(args.pod_id)
+    info = wait_for_ssh(pod, args.ssh_timeout)
+    command = (
+        "bash -lc 'set -euo pipefail; "
+        "test -f /workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-LTXVideo/iclora.py; "
+        "grep -q LTXICLoRALoaderModelOnly "
+        "/workspace/runpod-slim/ComfyUI/custom_nodes/ComfyUI-LTXVideo/iclora.py; "
+        "python3.12 -c \"import json,kornia; "
+        "from kornia.geometry.transform import pyramid; "
+        "print(json.dumps({\\\"kornia_version\\\":kornia.__version__,"
+        "\\\"pyramid_has_pad\\\":hasattr(pyramid,\\\"pad\\\")}))\"'"
+    )
+    result = pod.run(info, command, action="ltx_runtime_check", timeout=args.timeout)
+    sys.stdout.buffer.write(result.stdout)
+    return 0
+
+
+def command_repair_ltx_kornia(args: argparse.Namespace) -> int:
+    """Apply the versioned upstream compatibility repair to the running Pod over SSH."""
+    pod = PodSsh(args.pod_id)
+    info = wait_for_ssh(pod, args.ssh_timeout)
+    repair_script = PROJECT_ROOT / "scripts" / "pod" / "repair_ltx_kornia.py"
+    encoded = base64.b64encode(repair_script.read_bytes()).decode("ascii")
+    remote_path = (
+        "/workspace/runpod-slim/ComfyUI/custom_nodes/"
+        "ComfyUI-LTXVideo/pyramid_blending.py"
+    )
+    command = (
+        "python3.12 -c \"import base64;"
+        f"exec(compile(base64.b64decode('{encoded}'),'<repair_ltx_kornia>','exec'))\" "
+        f"--path {remote_path}"
+    )
+    result = pod.run(info, command, action="repair_ltx_kornia", timeout=args.timeout)
+    sys.stdout.buffer.write(result.stdout)
+    return 0
+
+
+def command_stage_output(args: argparse.Namespace) -> int:
+    """Move one validated ComfyUI output into a job's persistent staging area."""
+    job_id = validate_job_id(args.job_id)
+    source_filename = validate_basename(args.source_filename)
+    target_filename = validate_basename(args.target_filename)
+    pod = PodSsh(args.pod_id)
+    info = wait_for_ssh(pod, args.ssh_timeout)
+    source_primary = f"/workspace/runpod-slim/ComfyUI/output/{job_id}/{source_filename}"
+    source_fallback = f"/workspace/ComfyUI/output/{job_id}/{source_filename}"
+    destination_dir = f"/workspace/jobs/{job_id}/output-staging"
+    destination = f"{destination_dir}/{target_filename}"
+    command = (
+        "bash -lc 'set -euo pipefail; "
+        f"src={source_primary}; src_fallback={source_fallback}; "
+        f"dst_dir={destination_dir}; dst={destination}; "
+        "if test ! -f \"$src\" && test -f \"$src_fallback\"; then src=$src_fallback; fi; "
+        "if test -f \"$dst\"; then test ! -e \"$src\"; exit 0; fi; "
+        "test -f \"$src\"; mkdir -p \"$dst_dir\"; mv -- \"$src\" \"$dst\"'"
+    )
+    pod.run(info, command, action="stage_output", timeout=args.timeout)
+    print(json.dumps({"status": "staged", "job_id": job_id,
+                      "filename": target_filename}, indent=2))
     return 0
 
 
@@ -930,10 +1036,13 @@ def wait_guardian_ready(intent_path: Path, pid: int, timeout_seconds: int = 15) 
 
 
 def build_pod_create_args(args: argparse.Namespace, name: str, runpodctl: str) -> list[str]:
+    stack = read_json_object(PROJECT_ROOT / "config" / "stack.json", "stack config")
+    container_disk_gb = int(stack["runpod"]["container_disk_gb"])
     return [
         runpodctl, "pod", "create",
         "--name", name,
         "--template-id", args.template_id,
+        "--container-disk-in-gb", str(container_disk_gb),
         "--gpu-id", args.gpu_id,
         "--gpu-count", "1",
         "--cloud-type", "SECURE",
@@ -1284,6 +1393,39 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--wait-timeout", type=int, default=7200)
     submit.add_argument("--local-port", type=int, default=0)
     submit.set_defaults(func=command_submit)
+
+    metrics = subparsers.add_parser("metrics", help="read one GPU utilization snapshot over SSH")
+    metrics.add_argument("--pod-id", required=True)
+    metrics.add_argument("--ssh-timeout", type=int, default=600)
+    metrics.add_argument("--timeout", type=int, default=60)
+    metrics.set_defaults(func=command_metrics)
+
+    ltx_runtime = subparsers.add_parser(
+        "ltx-runtime-check", help="verify LTX node source and Kornia compatibility over SSH"
+    )
+    ltx_runtime.add_argument("--pod-id", required=True)
+    ltx_runtime.add_argument("--ssh-timeout", type=int, default=600)
+    ltx_runtime.add_argument("--timeout", type=int, default=60)
+    ltx_runtime.set_defaults(func=command_ltx_runtime_check)
+
+    repair_ltx = subparsers.add_parser(
+        "repair-ltx-kornia", help="apply the pinned LTX/Kornia compatibility repair over SSH"
+    )
+    repair_ltx.add_argument("--pod-id", required=True)
+    repair_ltx.add_argument("--ssh-timeout", type=int, default=600)
+    repair_ltx.add_argument("--timeout", type=int, default=120)
+    repair_ltx.set_defaults(func=command_repair_ltx_kornia)
+
+    stage_output = subparsers.add_parser(
+        "stage-output", help="move one ComfyUI output into persistent job staging"
+    )
+    stage_output.add_argument("--pod-id", required=True)
+    stage_output.add_argument("--job-id", required=True)
+    stage_output.add_argument("--source-filename", required=True)
+    stage_output.add_argument("--target-filename", required=True)
+    stage_output.add_argument("--ssh-timeout", type=int, default=600)
+    stage_output.add_argument("--timeout", type=int, default=600)
+    stage_output.set_defaults(func=command_stage_output)
 
     finalize = subparsers.add_parser("finalize", help="validate and atomically publish an output")
     finalize.add_argument("--pod-id", required=True)

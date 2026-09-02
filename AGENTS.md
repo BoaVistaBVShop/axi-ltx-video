@@ -193,7 +193,9 @@ Antes de o usuário enviar cada cena, perguntar se haverá comparação A/B sem 
 
 O teste deve comparar o perfil LoRA com o baseline BF16 indicado em `config/generation-profiles.json`, mantendo travados prompt, negative prompt, seed, materiais de entrada, duração, FPS, frames, aspecto e resolução. Registrar as diferenças de workflow e controle no manifest. Não comparar INT8 baseline com BF16+LoRA como se a diferença viesse apenas da LoRA.
 
-Os workflows oficiais LTX-2.5 fixados neste projeto carregam transformer e text encoder distilled BF16 e adaptadores IC-LoRA treinados sobre LTX-2.3. Por isso, os perfis LoRA começam na RTX PRO 6000 96 GB e com estado `configured_not_gpu_validated`. INT8+LoRA, RTX 5090 e outras combinações só podem ser habilitadas depois de teste real demonstrar compatibilidade, qualidade e custo. Ingredients e Motion Track são os primeiros testes recomendados; Union Control e Outpaint ficam disponíveis para cenas que realmente precisem desses controles.
+Os workflows oficiais LTX-2.5 fixados neste projeto carregam transformer e text encoder distilled BF16 e adaptadores IC-LoRA treinados sobre LTX-2.3. O piloto de 2026-09-01 comprovou baseline BF16 e os quatro pesos LoRA na RTX PRO 6000 96 GB. Ingredients, Motion Track e Outpaint completaram smoke tests reais; Union Control completou somente com guia RGB direto e sem a segunda etapa, porque os annotators de depth do workflow oficial não fazem parte da imagem vigente. Portanto, Union Control ainda não é perfil de produção. INT8+LoRA, RTX 5090 e outras combinações só podem ser habilitadas depois de teste real demonstrar compatibilidade, qualidade e custo.
+
+O commit fixado `15d09abb5a18` do `ComfyUI-LTXVideo` é incompatível com Kornia 0.8.3 sem o reparo do upstream que remove o import de `pad` e usa `torch.nn.functional.pad`. O reparo idempotente está versionado em `scripts/pod/repair_ltx_kornia.py` e incorporado ao `Dockerfile`. Não reutilizar a imagem `v0.3.0` como ambiente definitivo sem esse reparo; publicar uma nova imagem e atualizar o template antes da próxima sessão normal.
 
 Pesos e workflows são baixados idempotentemente uma única vez para o volume persistente e validados por tamanho e SHA-256 a partir de `config/models-manifest.json` e `config/workflows-manifest.json`. Uma falha de licença, download ou checksum deve interromper o bootstrap sem marcar o perfil como pronto.
 
@@ -268,8 +270,7 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - A API key foi configurada pelo usuário diretamente no terminal, sem passar pelo chat.
 - `runpodctl user` respondeu com sucesso.
 - Snapshot observado da conta nessa data: saldo de US$ 10, gasto corrente de US$ 0/h e spend limit geral de US$ 80/h. Esses números são temporários e devem ser consultados novamente antes de qualquer custo.
-- `runpodctl pod list --all` retornou lista vazia.
-- Não havia Pods ativos nem recursos computacionais cobrados criados por esta conversa.
+- Ao fim do piloto, `runpodctl pod list --all` retornou lista vazia; não restou GPU ou Pod cobrando.
 - `runpodctl ssh list-keys` confirmou uma chave pública cadastrada na conta. A chave privada correspondente permanece local e nunca deve ser lida, copiada ou registrada no projeto.
 - A ajuda ao vivo de `runpodctl pod create` confirmou `--ssh`, `--ports`, `--wait` e `--wait-timeout`, mas não listou `--terminate-after`; o watchdog externo é obrigatório para o primeiro provisionamento.
 - `flash` não foi instalado porque ainda não é necessário para o fluxo inicial baseado em Pods. Só instalar se uma futura etapa serverless/code-first justificar.
@@ -283,7 +284,7 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - O arquivo temporário `credentials.txt`, depois de usado pelo usuário para configurar o perfil protegido, foi removido do workspace e enviado à Lixeira do Windows sem que seu conteúdo fosse lido ou exibido.
 - O network volume `axi-ltx-video-models-v1` (`134w7utxe6`) foi criado com autorização explícita e verificado como `STANDARD`, 200 GB, em `EU-RO-1`. A listagem pela API S3 regional com o perfil local protegido `runpod-s3` foi bem-sucedida; o volume estava vazio e nenhum segredo foi exibido.
 - O template `axi-ltx-video-v0.3.0` (`6213ek6yok`) foi criado e verificado com a imagem pública pelo digest imutável vigente, container disk de 150 GB, montagem em `/workspace`, somente `22/tcp`, sem autenticação de registry e com referência ao secret existente pela variável `HF_TOKEN`. Nenhuma porta HTTP ou de Jupyter foi publicada.
-- Nenhum Pod/GPU foi criado nessa etapa, conforme a proibição explícita do usuário. O primeiro Pod continua dependendo de uma nova autorização de custo.
+- O piloto autorizado usou Pods descartáveis com watchdog, primeiro em RTX 5090 e depois em RTX PRO 6000 96 GB Secure. O Pod final `w3l8tr21pq6zpl` foi criado às 21:03:35, excluído às 21:34:57 e teve custo estimado de US$ 1,092 a US$ 2,09/h, abaixo do corte de 21:50 e do teto autorizado.
 - O catálogo Runpod ao vivo confirmou RTX 5090 32 GB a US$ 0,99/h no Secure Cloud e RTX PRO 6000 Blackwell Server Edition 96 GB a US$ 2,09/h no Secure Cloud. As duas suportam CUDA 13.0.
 - `EU-RO-1` foi selecionado como data center recomendado: oferece network volume `STANDARD` e apareceu na disponibilidade das duas GPUs escolhidas. Disponibilidade é dinâmica e deve ser revalidada no provisionamento.
 - A imagem pública `runpod/comfyui:cuda13.0` foi inspecionada e seu índice estava no digest `sha256:094dc6d79448b6f118c4d2b054073f92d765c568598e7a96aaeda678a6bcbf3b`.
@@ -297,8 +298,10 @@ O piloto sugerido anteriormente tinha limite de US$ 5, duas cenas, duas prévias
 - Por decisão explícita mais recente do usuário, o pacote `axi-ltx-video` no GHCR é **público**. A permissão organizacional para criação de pacotes públicos foi habilitada com autorização específica, e o pull anônimo da tag e do digest vigente foi comprovado com `docker buildx imagetools inspect`. O template Runpod não deve usar autenticação de container registry para esta imagem. Tornar a imagem pública não expõe `HF_TOKEN`, pesos gated, credenciais S3 nem materiais de cliente, pois esses artefatos não fazem parte da imagem.
 - Os parâmetros iniciais estão em `config/generation-profiles.json`, documentados em `docs/parametros-ltx.md`: preview single-stage INT8 e finais two-stage INT8/BF16, 24 fps, 5 s, 8 passos na primeira etapa, CFG 1 e 3 passos de refine na segunda etapa.
 - O usuário aceitou o acesso ao LTX-2.5 e, após confirmação específica sobre o compartilhamento de dados, aceitou também os repositórios gated Ingredients e In/Outpainting. Criou um token Hugging Face somente leitura e armazenou seu valor como secret Runpod `hf_token`; o conteúdo do token não foi visto nem registrado no workspace.
-- Quatro modos IC-LoRA foram configurados sem serem ativados por padrão: Ingredients, Motion Track, Union Control e Outpaint. Seus pesos, perfis e workflows estão declarados nos manifests, e os metadados oficiais de tamanho/SHA-256 foram confirmados. Eles ainda exigem download autenticado, validação local do arquivo e teste real em GPU antes de serem descritos como operacionais.
-- A orquestração local SSH foi implementada em `scripts/local/runpod_ssh.py`, com wrapper PowerShell `scripts/local/axi-ltx.ps1`: diagnóstico, criação protegida, readiness, túnel local do ComfyUI, bootstrap, submissão/retomada idempotente, finalize, watchdog e teardown com confirmação exata. O bootstrap remoto está em `scripts/pod/bootstrap.py`, usa lock e marcador atômico e não imprime segredos. Vinte e um testes passaram tanto no Windows quanto no Ubuntu/WSL, mas nenhum desses fluxos pode ser descrito como validado na Runpod antes do primeiro Pod real.
+- Os pesos baseline BF16 e dos quatro IC-LoRAs foram baixados uma vez, validados por tamanho/SHA-256 e persistidos no network volume. Ingredients, Motion Track e Outpaint passaram por geração real; Union Control passou somente pelo caminho adaptado descrito acima e permanece pendente no workflow oficial completo.
+- A orquestração local SSH em `scripts/local/runpod_ssh.py` foi validada em infraestrutura real: criação protegida, host key isolada, SSH, túnel local, bootstrap idempotente, submissão, retomada, métricas pontuais, finalize, watchdog e teardown exato. Vinte e um testes locais também passaram após o piloto.
+- O fluxo S3 real foi comprovado de ponta a ponta: `ready` remoto → exclusão do Pod → `.incoming` local → SHA-256 e FFprobe → `entregas/axi360-clip-01-20260901/previews`. Nenhuma credencial foi impressa.
+- A cena 1 gerou baseline INT8, baseline BF16 e quatro saídas LoRA, todas com 3,041667 s, 24 fps, H.264 e áudio AAC. Os tempos totais observados na RTX PRO 6000 foram 268,373 s para o primeiro baseline BF16, 50,495 s para Ingredients, 28,077 s para Motion Track, 31,801 s para Union adaptado e 37,450 s para Outpaint. Ingredients atingiu amostra pontual de 100% de GPU e 73,1% de VRAM; as demais amostras pontuais não representam pico e não devem ser apresentadas como média.
 
 Não incluir no repositório e não reproduzir em respostas o e-mail, ID interno da conta ou qualquer segredo retornado pelas ferramentas.
 
@@ -319,22 +322,15 @@ Concluído e versionado:
 - template `axi-ltx-video-v0.3.0` (`6213ek6yok`) provisionado e verificado com imagem fixada por digest, somente SSH em `22/tcp`, montagem em `/workspace` e secret referenciado sem expor o valor;
 - decisão de Secure Cloud, RTX 5090 para prévia e RTX PRO 6000 para final, ainda sujeita à revalidação de preço e disponibilidade antes de cada Pod.
 
-Ainda não concluído ou não autorizado:
+Ainda não concluído:
 
-- validar o controlador de criação protegida em um Pod real; os testes locais provam a ordem guardião → criação → persistência do ID → espera SSH e a recuperação por nome exclusivo, mas a aceitação em infraestrutura continua pendente;
-- testar a conexão SSH real no primeiro Pod e o port forwarding local para a API interna do ComfyUI; SSH é condição de continuidade, não etapa opcional;
-- testar em um Pod real a CLI local e o bootstrap remoto, incluindo host key isolada, túnel, retomada, watchdog e teardown; os testes locais não substituem essa aceitação;
-- confirmar no primeiro bootstrap que o secret `hf_token` chega ao processo autorizado sem ser exibido e que permite baixar os pesos LTX-2.5;
-- comprovar no primeiro bootstrap o download autenticado e o SHA-256 local dos quatro pesos IC-LoRA, embora os acessos gated e os metadados oficiais já estejam confirmados;
-- obter uma nova autorização explícita antes de criar qualquer Pod/GPU; a autorização anterior cobriu somente o volume e o template já provisionados;
-- criar o primeiro Pod de configuração pelo template, com o volume já existente e o watchdog externo armado;
-- carregar os modelos no volume uma única vez; a autenticação S3 contra o volume real já foi comprovada por listagem somente de leitura;
-- executar smoke test, excluir o Pod e repetir em um segundo Pod para provar persistência e idempotência;
-- executar benchmark real da RTX 5090 para prévia e da RTX PRO 6000 para final INT8/BF16;
-- receber classificação de confidencialidade, cenas/referências, duração, proporção, resolução, FPS, áudio e formato final do piloto;
-- confirmar o limite financeiro do piloto, proposto anteriormente em US$ 5 para duas cenas, duas prévias por cena e uma final selecionada de cada;
-- implementar e testar o downloader S3 local (`ready → .incoming → entregas/<job-id>`), validação local, arquivamento e purge seguro;
-- criar o workload piloto. Nenhum desses itens pode ser descrito como pronto antes de um teste real.
+- publicar a imagem sucessora da `v0.3.0` contendo o reparo Kornia já versionado e atualizar o template para o novo digest;
+- instalar e fixar os annotators exigidos pelo workflow oficial Union Control, validar seus pesos/hashes e repetir o teste com depth real e segunda etapa;
+- transformar a amostragem pontual de GPU em telemetria contínua por job, com média, pico e série temporal persistida; não inferir picos para os renders já concluídos;
+- escolher visualmente o vencedor da cena 1 e, se necessário, gerar a versão final/upscale aprovada;
+- confirmar editor e codec master antes de gerar ProRes 422 HQ ou DNxHR HQX;
+- fazer purge dos outputs remotos somente depois de o usuário confirmar recebimento e backup;
+- cada novo lote pago continua exigindo estimativa, teto e autorização explícita conforme a seção 8.
 
 ## 12. Serverless: decisão adiada
 
