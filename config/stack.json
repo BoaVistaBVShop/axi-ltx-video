@@ -17,9 +17,9 @@
     },
     "template": {
       "id": "6213ek6yok",
-      "name": "axi-ltx-video-v0.3.0",
+      "name": "axi-ltx-video-v0.4.0",
       "state": "PROVISIONED_VERIFIED",
-      "image": "ghcr.io/boavistabvshop/axi-ltx-video@sha256:4c4bb6e4e123193866adda10fc041d586e673fa36dee4304d2b5fcae5d9f014d",
+      "image": "ghcr.io/boavistabvshop/axi-ltx-video@sha256:fc9a3461e44f0152076deff2bd1fc9581f94fe5eb97950fe19c65d72216c14fd",
       "container_disk_gb": 150,
       "ports": ["22/tcp"],
       "volume_mount_path": "/workspace",
@@ -27,7 +27,7 @@
       "secret_environment_keys": ["HF_TOKEN"],
       "ssh_enabled": true,
       "http_services_exposed": false,
-      "verified_at": "2026-09-01T22:50:03Z"
+      "verified_at": "2026-09-02T00:51:15Z"
     },
     "container_disk_gb": 150,
     "ports": ["22/tcp"],
@@ -58,8 +58,8 @@
   },
   "image": {
     "base": "runpod/comfyui:cuda13.0@sha256:094dc6d79448b6f118c4d2b054073f92d765c568598e7a96aaeda678a6bcbf3b",
-    "published": "ghcr.io/boavistabvshop/axi-ltx-video@sha256:4c4bb6e4e123193866adda10fc041d586e673fa36dee4304d2b5fcae5d9f014d",
-    "published_tag": "v0.3.0",
+    "published": "ghcr.io/boavistabvshop/axi-ltx-video@sha256:fc9a3461e44f0152076deff2bd1fc9581f94fe5eb97950fe19c65d72216c14fd",
+    "published_tag": "v0.4.0",
     "registry_visibility": "PUBLIC",
     "runpod_registry_auth_required": false,
     "anonymous_pull_verified": true,
