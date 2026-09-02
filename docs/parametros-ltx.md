@@ -55,6 +55,12 @@ O piloto de 2026-09-01 validou em GPU real o baseline BF16, Ingredients, Motion 
 | `lora_union_control_bf16` | controle estrutural combinado | guia Union Control | `final_bf16` |
 | `lora_outpaint_bf16` | preencher ou expandir vídeo | vídeo de origem e máscara binária | `final_bf16` |
 
+### A/B Axi360 — Ingredients
+
+Os perfis `axi360_ingredients_ab_baseline` e `axi360_ingredients_ab_variant` fixam o lote vertical em 25 fps, 544×960 na geração, 1080×1920 na entrega, seed `3602501`, Diffusion Video VAE BF16 e nenhum áudio no arquivo final. A variante carrega Ingredients em força 1.3 e usa o start frame normalizado da própria cena como guia repetido.
+
+Este teste usa **LTX-2.5 distilled BF16 nos dois braços**. A documentação oficial do `ICLoraPipeline` declara que Ingredients só é suportado com modelo distilled; por isso, Dev BF16 + Ingredients não é oferecido como perfil válido. O teste mede baseline contra o workflow Ingredients, não “modelo ruim contra modelo bom” nem ganho genérico de qualidade provocado por uma LoRA.
+
 Antes de pedir o envio de cada cena, perguntar se haverá teste A/B com LoRA e qual perfil será usado. A resposta não é herdada de outra cena. Sem confirmação, nenhum peso LoRA é carregado. Quando autorizado, baseline e variante mantêm iguais prompt, negative prompt, seed, inputs, duração, FPS, frames, aspecto e resolução.
 
 Os exemplos oficiais LTX-2.5 usados aqui combinam transformer/text encoder distilled BF16 com IC-LoRAs treinados sobre LTX-2.3. Os primeiros testes, portanto, usam RTX PRO 6000 96 GB. Não atribuir diferenças entre INT8 e BF16 à LoRA e não habilitar INT8+LoRA até existir validação específica.

@@ -78,6 +78,21 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertRegex(entry["sha256"], r"^[0-9a-f]{64}$")
                 self.assertIn(self.workflows["source_commit"], entry["url"])
 
+    def test_axi360_ingredients_ab_is_comparable_and_distilled(self) -> None:
+        baseline = self.generation["profiles"]["axi360_ingredients_ab_baseline"]
+        variant = self.generation["profiles"]["axi360_ingredients_ab_variant"]
+
+        self.assertEqual(variant["ab_baseline_profile"], "axi360_ingredients_ab_baseline")
+        self.assertEqual(baseline["official_model_variant"], "LTX-2.5 distilled BF16")
+        self.assertEqual(variant["official_model_variant"], baseline["official_model_variant"])
+        self.assertEqual(variant["lora_strength"], 1.3)
+        for key in ("stage_1_width", "stage_1_height", "delivery_width",
+                    "delivery_height", "fps", "audio_output", "seed"):
+            with self.subTest(setting=key):
+                self.assertEqual(baseline["job_defaults"][key], variant["job_defaults"][key])
+        self.assertFalse(baseline["job_defaults"]["audio_output"])
+        self.assertEqual(baseline["job_defaults"]["fps"], 25)
+
 
 if __name__ == "__main__":
     unittest.main()

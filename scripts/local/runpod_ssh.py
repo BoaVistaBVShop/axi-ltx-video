@@ -16,6 +16,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from typing import Callable, Iterator
 from urllib.error import HTTPError, URLError
@@ -305,6 +306,33 @@ class PodSsh:
             timeout=timeout,
         )
 
+    def upload(self, info: SshInfo, local_path: Path, remote_path: str) -> None:
+        """Upload one validated file through the same isolated SSH trust boundary."""
+        remote_path = validate_heartbeat_path(remote_path)
+        if not local_path.is_file():
+            raise OrchestrationError(f"local upload file not found: {local_path}")
+        self.ensure_known_host(info)
+        scp = find_executable("scp", "AXI_SCP")
+        command = [
+            scp,
+            "-i", str(info.key_path),
+            "-P", str(info.port),
+            "-o", "BatchMode=yes",
+            "-o", "IdentitiesOnly=yes",
+            "-o", "StrictHostKeyChecking=yes",
+            "-o", f'UserKnownHostsFile="{self.known_hosts}"',
+            "-o", "ConnectTimeout=10",
+            str(local_path),
+            f"{self.destination(info)}:{remote_path}",
+        ]
+        run_process(command, action="ssh_upload", audit=self.audit, timeout=600)
+        self.audit.emit(
+            "ssh_upload_completed",
+            local_name=local_path.name,
+            remote_path=remote_path,
+            bytes=local_path.stat().st_size,
+        )
+
 
 def choose_local_port(requested: int) -> int:
     if requested:
@@ -521,27 +549,34 @@ def command_submit(args: argparse.Namespace) -> int:
         return 0
 
     info = wait_for_ssh(pod, args.ssh_timeout)
-    with ssh_tunnel(pod, info, args.local_port) as port:
-        base_url = f"http://127.0.0.1:{port}"
-        if state and state.get("prompt_id"):
-            prompt_id = state["prompt_id"]
-            pod.audit.emit("generation_resumed", job_id=job_id, prompt_id=prompt_id)
-        else:
-            response = http_json("POST", f"{base_url}/prompt", load_prompt_payload(prompt_path), timeout=30)
-            prompt_id = response.get("prompt_id")
-            if not isinstance(prompt_id, str) or not prompt_id:
-                raise OrchestrationError("ComfyUI did not return a prompt_id")
-            state = {
-                "schema_version": 1,
-                "job_id": job_id,
-                "pod_id": pod.pod_id,
-                "prompt_id": prompt_id,
-                "status": "submitted",
-                "submitted_at": utc_now(),
-            }
-            write_json_atomic(state_path, state)
-            pod.audit.emit("generation_submitted", job_id=job_id, prompt_id=prompt_id)
-        record = poll_history(base_url, prompt_id, args.wait_timeout, state_path, state)
+    telemetry = GpuTelemetry(pod, info, job_id, args.metrics_interval)
+    telemetry.start()
+    try:
+        with ssh_tunnel(pod, info, args.local_port) as port:
+            base_url = f"http://127.0.0.1:{port}"
+            if state and state.get("prompt_id"):
+                prompt_id = state["prompt_id"]
+                pod.audit.emit("generation_resumed", job_id=job_id, prompt_id=prompt_id)
+            else:
+                response = http_json(
+                    "POST", f"{base_url}/prompt", load_prompt_payload(prompt_path), timeout=30
+                )
+                prompt_id = response.get("prompt_id")
+                if not isinstance(prompt_id, str) or not prompt_id:
+                    raise OrchestrationError("ComfyUI did not return a prompt_id")
+                state = {
+                    "schema_version": 1,
+                    "job_id": job_id,
+                    "pod_id": pod.pod_id,
+                    "prompt_id": prompt_id,
+                    "status": "submitted",
+                    "submitted_at": utc_now(),
+                }
+                write_json_atomic(state_path, state)
+                pod.audit.emit("generation_submitted", job_id=job_id, prompt_id=prompt_id)
+            record = poll_history(base_url, prompt_id, args.wait_timeout, state_path, state)
+    finally:
+        telemetry.stop()
     print(json.dumps({"status": "completed", "job_id": job_id,
                       "prompt_id": prompt_id, "outputs": record.get("outputs", {})}, indent=2))
     return 0
@@ -561,25 +596,153 @@ def command_finalize(args: argparse.Namespace) -> int:
     return 0
 
 
+GPU_METRIC_FIELDS = [
+    "timestamp", "name", "utilization.gpu", "utilization.memory",
+    "memory.used", "memory.total", "temperature.gpu", "power.draw", "power.limit",
+]
+
+
+def query_gpu_metrics(pod: PodSsh, info: SshInfo, *, action: str, timeout: int = 60) -> list[dict]:
+    command = (
+        "nvidia-smi --query-gpu=" + ",".join(GPU_METRIC_FIELDS)
+        + " --format=csv,noheader,nounits"
+    )
+    result = pod.run(info, command, action=action, timeout=timeout)
+    rows = []
+    for line in result.stdout.decode("utf-8", errors="strict").splitlines():
+        values = [value.strip() for value in line.split(",")]
+        if len(values) != len(GPU_METRIC_FIELDS):
+            raise OrchestrationError("nvidia-smi returned an unexpected metrics row")
+        rows.append(dict(zip(GPU_METRIC_FIELDS, values, strict=True)))
+    return rows
+
+
+def metric_summary(samples: list[dict]) -> dict:
+    numeric_fields = [
+        "utilization.gpu", "utilization.memory", "memory.used", "memory.total",
+        "temperature.gpu", "power.draw", "power.limit",
+    ]
+    summary: dict[str, dict[str, float]] = {}
+    for field in numeric_fields:
+        values = []
+        for sample in samples:
+            try:
+                values.append(float(sample[field]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        if values:
+            summary[field] = {
+                "min": round(min(values), 3),
+                "max": round(max(values), 3),
+                "mean": round(sum(values) / len(values), 3),
+            }
+    memory_percent = []
+    for sample in samples:
+        try:
+            used = float(sample["memory.used"])
+            total = float(sample["memory.total"])
+            if total > 0:
+                memory_percent.append(used * 100.0 / total)
+        except (KeyError, TypeError, ValueError):
+            continue
+    if memory_percent:
+        summary["memory.used_percent"] = {
+            "min": round(min(memory_percent), 3),
+            "max": round(max(memory_percent), 3),
+            "mean": round(sum(memory_percent) / len(memory_percent), 3),
+        }
+    return summary
+
+
+class GpuTelemetry:
+    """Continuously sample GPU usage for exactly one submitted job."""
+
+    def __init__(self, pod: PodSsh, info: SshInfo, job_id: str, interval_seconds: int) -> None:
+        if interval_seconds < 2 or interval_seconds > 60:
+            raise OrchestrationError("metrics interval must be between 2 and 60 seconds")
+        self.pod = pod
+        self.info = info
+        self.job_id = validate_job_id(job_id)
+        self.interval_seconds = interval_seconds
+        self.started_at = utc_now()
+        self.samples: list[dict] = []
+        self.errors: list[str] = []
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, name=f"gpu-{self.job_id}", daemon=True)
+        self.path = STATE_ROOT / "metrics" / f"{self.job_id}.json"
+
+    def start(self) -> None:
+        self.thread.start()
+        self.pod.audit.emit(
+            "gpu_telemetry_started", job_id=self.job_id, interval_seconds=self.interval_seconds
+        )
+
+    def _run(self) -> None:
+        while not self.stop_event.is_set():
+            try:
+                rows = query_gpu_metrics(
+                    self.pod, self.info, action="gpu_metrics_sample", timeout=30
+                )
+                observed_at = utc_now()
+                for row in rows:
+                    row["observed_at"] = observed_at
+                    self.samples.append(row)
+            except (OrchestrationError, subprocess.TimeoutExpired) as exc:
+                self.errors.append(type(exc).__name__)
+            self.stop_event.wait(self.interval_seconds)
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        self.thread.join(timeout=35)
+        payload = {
+            "schema_version": 1,
+            "job_id": self.job_id,
+            "pod_id": self.pod.pod_id,
+            "started_at": self.started_at,
+            "stopped_at": utc_now(),
+            "interval_seconds": self.interval_seconds,
+            "sample_count": len(self.samples),
+            "summary": metric_summary(self.samples),
+            "samples": self.samples,
+            "sampling_errors": self.errors,
+        }
+        write_json_atomic(self.path, payload)
+        self.pod.audit.emit(
+            "gpu_telemetry_stopped",
+            job_id=self.job_id,
+            sample_count=len(self.samples),
+            report=str(self.path),
+        )
+
+
+def command_upload_input(args: argparse.Namespace) -> int:
+    local_path = Path(args.local_file).resolve()
+    remote_name = validate_basename(args.remote_name or local_path.name)
+    pod = PodSsh(args.pod_id)
+    info = wait_for_ssh(pod, args.ssh_timeout)
+    remote_root = "/workspace/runpod-slim/ComfyUI/input"
+    pod.run(
+        info,
+        f"bash -lc 'set -euo pipefail; mkdir -p -- {remote_root}'",
+        action="prepare_input_directory",
+        timeout=30,
+    )
+    remote_path = f"{remote_root}/{remote_name}"
+    pod.upload(info, local_path, remote_path)
+    print(json.dumps({
+        "status": "uploaded",
+        "pod_id": pod.pod_id,
+        "remote_name": remote_name,
+        "bytes": local_path.stat().st_size,
+    }, indent=2))
+    return 0
+
+
 def command_metrics(args: argparse.Namespace) -> int:
     """Read a bounded GPU utilization snapshot over SSH without exposing secrets."""
     pod = PodSsh(args.pod_id)
     info = wait_for_ssh(pod, args.ssh_timeout)
-    fields = [
-        "timestamp", "name", "utilization.gpu", "utilization.memory",
-        "memory.used", "memory.total", "temperature.gpu", "power.draw", "power.limit",
-    ]
-    command = (
-        "nvidia-smi --query-gpu=" + ",".join(fields)
-        + " --format=csv,noheader,nounits"
-    )
-    result = pod.run(info, command, action="gpu_metrics", timeout=args.timeout)
-    rows = []
-    for line in result.stdout.decode("utf-8", errors="strict").splitlines():
-        values = [value.strip() for value in line.split(",")]
-        if len(values) != len(fields):
-            raise OrchestrationError("nvidia-smi returned an unexpected metrics row")
-        rows.append(dict(zip(fields, values, strict=True)))
+    rows = query_gpu_metrics(pod, info, action="gpu_metrics", timeout=args.timeout)
     print(json.dumps({"status": "ok", "gpus": rows}, indent=2))
     return 0
 
@@ -1392,7 +1555,17 @@ def build_parser() -> argparse.ArgumentParser:
     submit.add_argument("--ssh-timeout", type=int, default=600)
     submit.add_argument("--wait-timeout", type=int, default=7200)
     submit.add_argument("--local-port", type=int, default=0)
+    submit.add_argument("--metrics-interval", type=int, default=5)
     submit.set_defaults(func=command_submit)
+
+    upload_input = subparsers.add_parser(
+        "upload-input", help="upload one validated ComfyUI input through SSH"
+    )
+    upload_input.add_argument("--pod-id", required=True)
+    upload_input.add_argument("--local-file", required=True)
+    upload_input.add_argument("--remote-name")
+    upload_input.add_argument("--ssh-timeout", type=int, default=600)
+    upload_input.set_defaults(func=command_upload_input)
 
     metrics = subparsers.add_parser("metrics", help="read one GPU utilization snapshot over SSH")
     metrics.add_argument("--pod-id", required=True)

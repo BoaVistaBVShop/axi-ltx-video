@@ -103,6 +103,19 @@ class SshSafetyTests(unittest.TestCase):
                 orchestrator.delete_pod("abc123", audit=audit)
             self.assertIn("pod_already_absent", audit.path.read_text(encoding="utf-8"))
 
+    def test_gpu_metric_summary_reports_peak_mean_and_vram_percent(self):
+        summary = orchestrator.metric_summary([
+            {"utilization.gpu": "20", "utilization.memory": "10", "memory.used": "25",
+             "memory.total": "100", "temperature.gpu": "40", "power.draw": "100",
+             "power.limit": "500"},
+            {"utilization.gpu": "100", "utilization.memory": "80", "memory.used": "75",
+             "memory.total": "100", "temperature.gpu": "60", "power.draw": "400",
+             "power.limit": "500"},
+        ])
+        self.assertEqual(summary["utilization.gpu"]["max"], 100.0)
+        self.assertEqual(summary["utilization.gpu"]["mean"], 60.0)
+        self.assertEqual(summary["memory.used_percent"]["max"], 75.0)
+
 
 class GuardedCreationTests(unittest.TestCase):
     def _approval(self, root: Path, *, deadline: datetime, gpu_id: str = "gpu.fixture") -> Path:
